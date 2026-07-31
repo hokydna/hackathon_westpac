@@ -162,8 +162,14 @@ would otherwise both write.
       `LANGSMITH_TRACING` is falsy** (F12). Lands here so B only decorates and never edits
       a shared file. Ships disabled; dev-only.
 - [ ] `src/prompts.py` — **F1.** `SYNTH_SYSTEM` and `SYNTH_USER` verbatim from
-      `FINETUNE_PLAN.md` §4.1, plus the sentiment-path prompt. Imported by
-      `src/agent/synth.py` (B) and `training/prepare_data.py` (D). **Neither may edit it.**
+      `FINETUNE_PLAN.md` §4.1, **plus `SENTIMENT_SYSTEM` / `SENTIMENT_USER`** for the
+      Role-2 sentiment tool (§10). Imported by `src/agent/synth.py` (B),
+      `src/tools/registry.py` (A) and `training/prepare_data.py` (D). **None may edit it.**
+- [ ] `src/domain_client.py` — **F17, §10.** The single `DOMAIN_FT_MODEL` caller. Honours
+      `DOMAIN_PREDICT_MODE` (`mock` | `llm`), `SYNTH_TIMEOUT_S`, `temperature=0`. Exposes
+      `complete(system, user, max_tokens)`. Imported by A's sentiment tool and B's `synth.py`;
+      **neither edits it.** Without it, A would have to import B's `synth.py`, which may not
+      exist yet — exactly the cross-stream dependency Phase 0 exists to prevent.
 - [ ] `src/contracts.py` — `ToolCall`, `AgentResult` as importable stubs
       (harness §3), and empty `ALL_TOOLS` / `BRAIN_SCHEMAS` exports so B can import
       before A has written anything.
@@ -255,8 +261,8 @@ they fight over the git index and failures become unattributable.
 
 | Session | Branch | Owns | Must not touch | Done when |
 |---|---|---|---|---|
-| **A — tools** | `feat/tools` | `src/tools/*` (all five incl. `registry.py`), `tests/test_{rba,asx,afr}.py` | `src/agent/*`, `app.py`, `config.py`, `prompts.py` | MHQ001, MHQ040, MHQ061 reproduce exactly; `ALL_TOOLS` + `BRAIN_SCHEMAS` export |
-| **B — agent** | `feat/agent` | `src/agent/*` (all six), `tests/test_{parser,guard,loop}.py` | `src/tools/*`, `app.py`, `config.py`, `prompts.py` | Real captured XML parses; brain turn ≈1 s; turn cap + deadline + partial-synthesis all tested against a fake brain |
+| **A — tools** | `feat/tools` | `src/tools/*` (all five incl. `registry.py`) **and the `domain_sentiment` tool (§10)**, `tests/test_{rba,asx,afr,sentiment}.py` | `src/agent/*`, `app.py`, `config.py`, `prompts.py`, `domain_client.py` | MHQ001, MHQ040, MHQ061 reproduce exactly; `ALL_TOOLS` + `BRAIN_SCHEMAS` export; `domain_sentiment` passes in `mock` mode |
+| **B — agent** | `feat/agent` | `src/agent/*` (all six), `tests/test_{parser,guard,loop}.py` | `src/tools/*`, `app.py`, `config.py`, `prompts.py`, `domain_client.py` | Real captured XML parses; brain turn ≈1 s; turn cap + deadline + partial-synthesis all tested against a fake brain; **synthesis runs unconditionally and is absent from `ALL_TOOLS`** |
 | **C — serving & eval** | `feat/serving-eval` | `app.py`, `src/eval/*` (except `component_judge.py`), `tests/test_app.py`, submission hardening | `src/agent/*`, `src/tools/*`, `config.py`, `prompts.py` | `/health` 200 with LiteLLM unreachable; `/query` validates against `validate.json`; offline harness scores all 15 with penalised scoring + attribution |
 | **D — fine-tuning** | `feat/training` | `training/*` entirely | everything under `src/` | Adapter served as `nemotron-8b-finance`, `domain-ft` returns 200, base-vs-FT table written, `DOMAIN_PREDICT_MODE=llm` |
 
@@ -350,6 +356,25 @@ a different field set silently produces counts that will not match the reference
 Add a `coverage` tool that compares date ranges across datasets. MHQ090's correct answer
 is a justified refusal — RBA covers the 2022-23 hikes but AFR and ASX both end in 2021.
 
+  6. domain_sentiment — THE ONE TOOL THAT CALLS NEMOTRON. Read §10 in full before writing it.
+     Setup_Instructions.md L95 requires article-grounded sentiment questions to route the
+     retrieved AFR text AND the applicable RBA rate through DOMAIN_FT_MODEL, returning a
+     sentiment classification (positive/negative/mixed) plus a likely market direction. Worth
+     30 of the 150 public points (MHQ058, MHQ067, MHQ080).
+
+     Signature: domain_sentiment(headline, article_text, publication_date, rba_rate) -> str
+     Implementation: import src.domain_client and src.prompts (both FROZEN, base commit).
+     Never import src/agent/synth.py — that is session B's file and may not exist yet.
+
+     Hard constraints, all of them scored:
+     - Returns a CLASSIFICATION, not an answer. Clamp output to 200 chars.
+     - NO fabricated numeric forecast — explicitly prohibited by L95. MHQ067's reference
+       hedges the direction ("mixed-to-down") and invents no figure.
+     - Deny the call when no AFR article has been retrieved in this request's trace. That
+       stops Qwen using Nemotron as a general answerer, which is the prohibited pattern.
+     - It is a tool like any other: its output is a verified tool result that flows on into
+       final synthesis. It does NOT replace final synthesis.
+
 Two measurements only you can make, both go in your status report:
 - Peak RSS after the AFR index build. Each node is a single GB10 with unified memory SHARED
   with vLLM, and vllm-brain lives on node0 next to you. An unmeasured multi-GB index next to
@@ -396,13 +421,20 @@ Then guard.py (allowlist + Pydantic coercion), budget.py (turn cap 3, 45s wall d
 clamp every tool result to config.TOOL_RESULT_CHAR_CAP), and loop.py.
 
 Then synth.py — mock and llm modes plus a deterministic template fallback built from the
-trace, so a Nemotron outage degrades to partial credit rather than zero. Import the
-prompts from src/prompts.py; do NOT write your own. Point llm mode at node1's base model
-(http://10.0.1.11:8001/v1) first — that validates the wiring and collects the base side of
-the model-quality comparison. synth.py also needs a second, distinct prompt path for
-article-grounded sentiment: AFR text + the applicable RBA rate in, sentiment
-(positive/negative/mixed) + likely market direction out, and explicitly NO fabricated
-numeric forecast.
+trace, so a Nemotron outage degrades to partial credit rather than zero. Import the prompts
+from src/prompts.py and the client from src/domain_client.py; do NOT write your own of
+either. Point llm mode at node1's base model (http://10.0.1.11:8001/v1) first — that
+validates the wiring and collects the base side of the model-quality comparison.
+
+READ §10 BEFORE WRITING loop.py OR synth.py. Nemotron has two roles and you own only one:
+- Role 1, YOURS: final synthesis. It is NOT a tool and it is NOT conditional. loop.py calls
+  synth.write() after the loop exits, on EVERY request — including deadline breach, zero
+  successful tool calls, and total brain failure. Never put synthesis in ALL_TOOLS and never
+  let Qwen decide whether it runs. Challenge_Brief § Required Model Roles requires Nemotron
+  to receive the accumulated results AFTER the loop; handout/03 has a section titled "Bad:
+  Nemotron used as the planner and tool caller". Two 30% categories ride on this.
+- Role 2, NOT yours: the domain_sentiment tool is session A's, in src/tools/registry.py.
+  Both of you call the same frozen src/domain_client.py, so you never import each other.
 
 One principle governs every failure path: NEVER RETURN A NON-ANSWER. Brain timeout, tool
 error, deadline breach, synthesis failure — all still produce a valid answer string that
@@ -562,8 +594,16 @@ paraphrase arm failed, your target is template reproduction, not natural synthes
 Also train two behaviours neither obvious nor optional: justified refusal when coverage is
 missing (MHQ090's correct answer is a refusal worth 10 points across three graded parts —
 "No" alone earns only 3.33; the evidence-boundary reasoning is worth more than the
-verdict), and the sentiment path (AFR text + applicable RBA rate -> sentiment + likely
-direction, explicitly NO fabricated numeric forecast).
+verdict), and the sentiment path.
+
+On the sentiment path, read §10. Nemotron is called in TWO places and you are training ONE
+adapter for both, so the mix must cover both shapes:
+- Role 1, final synthesis — SYNTH_SYSTEM/SYNTH_USER, the bulk of the mix.
+- Role 2, the domain_sentiment TOOL that Qwen calls mid-loop — SENTIMENT_SYSTEM/
+  SENTIMENT_USER, the 12% sentiment slice. Its output is a short CLASSIFICATION (sentiment
+  + likely direction, <=200 chars), NOT a full answer, and NEVER a numeric forecast. Train
+  it to that exact shape, because A's tool clamps the output and a rambling classification
+  gets truncated. Import both prompt pairs from src/prompts.py verbatim.
 
 Serving, when you get there: `--served-model-name nemotron-8b-finance`. LiteLLM routes
 domain-ft to that name while node1 currently advertises Llama-3.1-Nemotron-Nano-8B-v1, so
@@ -618,6 +658,11 @@ whole category:
 - [ ] `GET /health` returns 200 **from another machine**, using the IP in `submission.json`
 - [ ] `POST /query` returns a non-empty `answer` validating against `validate.json`
 - [ ] `DOMAIN_PREDICT_MODE=llm` and the agent demonstrably routes through `domain-ft`
+- [ ] **Nemotron's two roles are both live and correctly separated** (§10): final synthesis
+      fires on every `/query` and is **absent from `ALL_TOOLS`**; `domain_sentiment` appears in
+      `BRAIN_SCHEMAS` and a sentiment question shows it in `tool_trace` followed by a
+      synthesised answer. Grep the trace for one of MHQ058/067/080 as the evidence — the FT
+      rubric asks for exactly this and the architecture rubric scores the separation.
 - [ ] Three concurrent `/query` requests, no crossed answers
 - [ ] Most responses under 60 s
 - [ ] `data set/` untracked; no credentials in any tracked file; `Cognitivo_Labs/` not copied
@@ -643,6 +688,7 @@ adopted nor rejected. Each now has a decision. **F9–F16 extend the F1–F8 set
 | **F14** | Octopus merge aborts wholesale and loses the per-branch signal. | V12 | **Adopted.** Sequential `--no-ff` merges, §8. |
 | **F15** | The `role: "tool"` message may be rejected, and it is on B's critical path. | C1 | **Adopted as a Phase 0 probe** (§4). Two minutes now versus a blocked session B at hour 4. Record the outcome in this row. **Result: _unrun — fill this in._** |
 | **F16** | Review §A/§B propose step notes, ADRs, `CHANGELOG.md`, pre-commit + gitleaks, and CI. | A.2, B.1, B.3, V5–V9 | **Mostly rejected on the clock, two exceptions.** `README.md` says `docs/` is not required, and a 12-hour build does not fund an ADR set. **Adopted:** (a) Conventional Commits naming the plan section, already in the §6.1 preamble — it is free and it is what "repository structure" credit reads; (b) `training/MODEL_SUMMARY.md` and `training/COMPARISON.md`, which are already D's deliverables and carry most of the 30% model-quality evidence. **Rejected:** `docs/steps/*`, `docs/DECISIONS/*`, `CHANGELOG.md`, pre-commit, CI. The secret scan survives as a §8 gate item rather than a hook. |
+| **F17** | Nemotron's two roles were conflated, and the sanctioned one was unbuilt. | — | **See §10.** Synthesis is never a tool; sentiment classification is. |
 
 ### Two review items promoted into session prompts
 
@@ -653,3 +699,76 @@ adopted nor rejected. Each now has a decision. **F9–F16 extend the F1–F8 set
 - **Thinking-off latency under 3-way concurrency** (C4) — session C measures it. §6 of the
   harness plan has the figure for thinking-**on** (20.7 s) but not off, and 3 concurrent
   requests is the graded condition.
+
+---
+
+## 10. Where Nemotron is a tool, and where it must not be (F17)
+
+Nemotron has **two** roles. Conflating them is a scored failure; keeping them separate is worth
+real points. This is the architecture decision, and it binds sessions A, B and D at once.
+
+### Role 1 — final synthesis. NOT a tool. Unconditional.
+
+```
+question → Qwen plans/emits tool calls → runtime executes → results back to Qwen
+         → loop until Qwen stops → Nemotron synthesises → POST /query
+```
+
+`Challenge_Brief.md` § Required Model Roles: Nemotron *"receives the question and accumulated
+verified tool results **after** the Qwen reasoning loop, then synthesizes the final concise
+financial-domain answer."* Same doc: *"Do not train Nemotron to replace the supplied Qwen
+reasoning brain or **use Nemotron as the primary tool-calling model**."*
+
+`handout/03_scoring_and_examples.md` has a section titled **"Bad: Nemotron used as the planner
+and tool caller"** for `question → Nemotron → tool calls → Nemotron → answer`, because *"tool
+selection becomes dependent on the Nemotron adapter instead of the stable Qwen agent-brain"*.
+
+**Therefore synthesis is never in `ALL_TOOLS` and Qwen never decides whether it happens.**
+`loop.py` calls it after the loop exits, on every request, including deadline breach and total
+tool failure. Two scored items ride on this: "correct separation of responsibilities"
+(architecture 30%) and "evidence that the final agent uses Qwen for planning and tool-call
+generation, then routes the verified tool results through the fine-tuned Nemotron model for
+final synthesis" (FT quality 30%).
+
+### Role 2 — sentiment classification. **This one IS a tool Qwen calls.**
+
+`Setup_Instructions.md` L95: *"Route article-grounded sentiment questions through your
+fine-tuned domain model using the `DOMAIN_FT_MODEL` alias. The model should receive the
+retrieved AFR article text and the applicable RBA rate as context and return a sentiment
+classification (positive, negative, or mixed) and a likely market direction. Do not force the
+model to emit a made-up numeric return or price forecast."* Restated in L120's checklist.
+
+This is required, it is distinct from synthesis, and it is **currently unbuilt in every plan**.
+It is worth 30 of the 150 public points (MHQ058, MHQ067, MHQ080) and Qwen has to orchestrate it
+— retrieve the article, look up the as-of rate, then classify — so exposing it as a tool is the
+correct shape:
+
+```python
+domain_sentiment(headline: str, article_text: str, publication_date: str, rba_rate: str) -> str
+```
+
+Constraints that keep it from sliding into Role 1:
+
+- **It returns a classification, not an answer.** Sentiment label + likely direction, ≤200
+  chars, no full prose answer. Clamp the output.
+- **No fabricated numbers.** Explicitly prohibited by L95. `MHQ067`'s reference hedges the
+  *direction* (`mixed-to-down`) and never invents a figure.
+- **The guard denies it when the trace holds no retrieved article**, so Qwen cannot use it as a
+  general-purpose answerer on a numeric question.
+- **Final synthesis still runs afterwards.** The tool's output is just another verified tool
+  result flowing into Role 1.
+
+### Ownership — one new frozen file
+
+Both `src/tools/registry.py` (A) and `src/agent/synth.py` (B) now need to talk to
+`DOMAIN_FT_MODEL`, so by the §4 rule the client lands in the **base commit**:
+
+- [ ] `src/domain_client.py` — **FROZEN.** The single `DOMAIN_FT_MODEL` caller. Honours
+      `DOMAIN_PREDICT_MODE` (`mock` | `llm`), `SYNTH_TIMEOUT_S`, `temperature=0`. Exposes
+      `complete(system, user, max_tokens)`. A's sentiment tool and B's `synth.py` both import
+      it; **neither edits it.** Without this, A's registry would have to import B's `synth.py`,
+      which may not exist yet — the exact cross-stream dependency Phase 0 exists to prevent.
+- [ ] `src/prompts.py` gains `SENTIMENT_SYSTEM` / `SENTIMENT_USER` alongside the synthesis
+      pair, same freeze, same reason: session D trains against them.
+
+Sessions A and C each carry one measurement promoted out of the review — see the end of §9.

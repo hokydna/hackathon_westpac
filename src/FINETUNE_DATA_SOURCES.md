@@ -233,6 +233,14 @@ Do 1 + 3, and 2 if minutes allow.
 (`mixed-to-down`) while never inventing a number. Every teacher-labelled record must obey this or
 the adapter learns to make up percentages.
 
+**This slice trains a TOOL, not the final answer** (kickoff §10, `FINETUNE_PLAN.md` §1). Qwen
+calls `domain_sentiment` mid-loop; its output is a classification that flows back as a verified
+tool result and *then* gets synthesised. So these records use `SENTIMENT_SYSTEM` /
+`SENTIMENT_USER` from `src/prompts.py` — **not** the synthesis pair — and the `assistant` target
+is the ≤200-char classification, not a full answer. A's tool clamps at 200 chars, so a rambling
+target loses its direction clause at inference and forfeits MHQ058/067/080's 4-point direction
+components.
+
 **Teacher prompt to fire at Qwen (`chat_template_kwargs={"enable_thinking": false}`):**
 
 ```

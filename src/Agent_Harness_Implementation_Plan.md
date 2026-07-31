@@ -25,10 +25,20 @@ The required architecture is fixed by the organizers:
 question
   → Qwen (agent-brain, LiteLLM) plans + emits tool calls   [supplied, frozen]
   → our runtime validates + executes the tool calls
+      ├─ deterministic data tools: rba / asx / afr / coverage
+      └─ domain_sentiment → Nemotron  [Role 2 — the ONE tool that calls Nemotron]
   → results loop back to Qwen until reasoning completes
-  → our fine-tuned Nemotron synthesizes the final answer
+  → our fine-tuned Nemotron synthesizes the final answer   [Role 1 — NOT a tool]
   → POST /query returns {"answer", "steps", "tool_trace"}
 ```
+
+**Nemotron has two roles and the distinction is scored.** Role 1 (final synthesis) is
+unconditional and never appears in `ALL_TOOLS` — `Challenge_Brief.md` § Required Model Roles
+forbids using Nemotron as "the primary tool-calling model" and requires it to receive results
+*after* the loop, and `handout/03` titles the inverse pattern "Bad: Nemotron used as the
+planner and tool caller." Role 2 (`domain_sentiment`) **is** a tool Qwen selects, because
+`Setup_Instructions.md` L95 requires article-grounded sentiment to route AFR text + the
+applicable RBA rate through `DOMAIN_FT_MODEL`. Full rules: `SESSION_KICKOFF.md` §10.
 
 Two facts measured on the live cluster force a specific implementation of that shape:
 
@@ -60,8 +70,9 @@ src/
 ├── Agent_Harness_Implementation_Plan.md   ← this file
 ├── SESSION_KICKOFF.md  ← the source of truth; read it first
 ├── config.py           every env var + budget constant, one place  [FROZEN]
-├── prompts.py          SYNTH_SYSTEM / SYNTH_USER, shared with training  [FROZEN]
+├── prompts.py          SYNTH_* + SENTIMENT_* prompts, shared with training  [FROZEN]
 ├── contracts.py        ToolCall, AgentResult, ALL_TOOLS/BRAIN_SCHEMAS stubs  [FROZEN]
+├── domain_client.py    the single DOMAIN_FT_MODEL caller, mock|llm  [FROZEN]
 ├── app.py              FastAPI: GET /health, POST /query — thin
 ├── agent/
 │   ├── loop.py         orchestrator: turn cap, deadline, trace assembly
@@ -351,11 +362,23 @@ correct answer is a **justified refusal**: RBA covers the 2022–23 hikes but AF
 both end in 2021, so the analysis is unsupported. The fine-tuned model must be trained to
 state insufficiency rather than fabricate.
 
-**Second role for the fine-tuned model.** `Setup_Instructions.md` requires that
-article-grounded sentiment questions route the retrieved AFR text *and* the applicable
-RBA rate through `DOMAIN_FT_MODEL`, returning positive/negative/mixed plus a likely
-market direction — and explicitly not a fabricated numeric forecast. This is distinct
-from final synthesis and needs its own prompt path in `synth.py`.
+**`domain_sentiment` ★ — the one tool that calls Nemotron.** `Setup_Instructions.md` L95
+requires article-grounded sentiment questions to route the retrieved AFR text *and* the
+applicable RBA rate through `DOMAIN_FT_MODEL`, returning positive/negative/mixed plus a likely
+market direction — and explicitly **not** a fabricated numeric forecast. Worth 30 of the 150
+public points (MHQ058, MHQ067, MHQ080).
+
+```python
+domain_sentiment(headline: str, article_text: str, publication_date: str, rba_rate: str) -> str
+```
+
+It lives in **`src/tools/registry.py`** (owner A), not in `synth.py` — Qwen has to orchestrate
+it (retrieve the article, look up the as-of rate, then classify), so it belongs in the tool
+surface. It imports the frozen `src/domain_client.py` and `src/prompts.py`, never owner B's
+`synth.py`. It returns a **classification clamped to 200 chars, not an answer**, it is denied
+when the trace holds no retrieved article, and final synthesis still runs after it. Those four
+constraints are what keep Role 2 from collapsing into the prohibited Role-1-as-a-tool pattern.
+See `SESSION_KICKOFF.md` §10.
 
 ---
 
@@ -398,9 +421,18 @@ for `nab`/`qbe`/`unemployment`.
 MHQ045 best/worst 2018 excluding Tabcorp.
 
 **Step 7 — synthesis (owner B, ~45 min)**
-`synth.py` with `mock` and `llm` modes, the deterministic template fallback, and the
-sentiment path. Point `llm` mode at node1's base model first — that both validates the
-wiring and collects the base-model side of the comparison evidence.
+`synth.py` with `mock` and `llm` modes and the deterministic template fallback, over the
+frozen `domain_client`. Point `llm` mode at node1's base model first — that both validates the
+wiring and collects the base-model side of the comparison evidence. **Synthesis is
+unconditional and is never registered as a tool** (§1, kickoff §10): `loop.py` calls it after
+the loop exits on every request, including deadline breach and zero successful tool calls. The
+sentiment path is *not* here — it is owner A's `domain_sentiment` tool in step 6b.
+
+**Step 6b — `domain_sentiment` tool (owner A, ~30 min)**
+The Role-2 Nemotron tool, in `registry.py`, over the frozen `domain_client` and
+`prompts.SENTIMENT_*`. Test in `mock` mode first so it needs no live adapter. Assert: output
+clamped to 200 chars, no digit-bearing forecast in the output, and denial when the trace holds
+no retrieved AFR article.
 
 **Step 8 — registry wiring (owners A+B, ~30 min)**
 `registry.py` exports `ALL_TOOLS` and `BRAIN_SCHEMAS`. First real end-to-end `/query`.

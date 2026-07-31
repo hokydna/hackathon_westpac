@@ -26,11 +26,21 @@ the agent**, plus the evidence needed for the 30% fine-tuned-model-quality categ
 adapter, base-vs-fine-tuned comparison, `training/` artifacts.
 
 **Explicitly out of scope:** Nemotron never plans, never selects tools, never emits tool
-calls. Qwen (`agent-brain`) owns all of that and is frozen. Nemotron's only inputs are a
-question plus already-verified tool results; its only output is the final answer string.
-Violating this loses architecture credit — see
-`Participant_Package/handout/03_scoring_and_examples.md` § "Bad: Nemotron used as the
-planner and tool caller".
+calls. Qwen (`agent-brain`) owns all of that and is frozen. Violating this loses architecture
+credit — see `Participant_Package/handout/03_scoring_and_examples.md` § "Bad: Nemotron used as
+the planner and tool caller".
+
+**In scope, and easy to miss: the adapter serves two prompt shapes, not one** (kickoff §10):
+
+| Role | Invoked | Prompt pair | Output |
+|---|---|---|---|
+| **1 — final synthesis** | Unconditionally, **after** the Qwen loop exits. Never a tool. | `SYNTH_SYSTEM` / `SYNTH_USER` | The full answer string |
+| **2 — sentiment classification** | **As a tool Qwen calls**, mid-loop (`domain_sentiment`), per `Setup_Instructions.md` L95 | `SENTIMENT_SYSTEM` / `SENTIMENT_USER` | A classification ≤200 chars: sentiment + likely direction, **no numeric forecast** |
+
+Role 2 being a Qwen-selected tool is not a violation of the paragraph above — Qwen still does
+all the planning and still decides to call it. What is prohibited is Nemotron *choosing* tools.
+Both roles share one adapter, so the §6.1 mix must train both shapes; a Role-2 answer that
+rambles gets clamped to 200 chars by the tool and loses the direction clause.
 
 ### 1.1 What actually earns the 30%
 
@@ -350,7 +360,7 @@ variety are.
 |---|---:|---|
 | `*_single` — RBA / ASX / AFR single-dataset synthesis | 45% | state every component exactly |
 | `cross` — two or three datasets combined | 25% | multi-source composition |
-| `sentiment` — AFR article text + applicable RBA rate | 12% | sentiment + direction, **no** numeric forecast |
+| `sentiment` — AFR article text + applicable RBA rate | 12% | Role 2 (§1): sentiment + direction in ≤200 chars, **no** numeric forecast. Uses `SENTIMENT_SYSTEM`/`SENTIMENT_USER`, not the synthesis pair — this slice trains the `domain_sentiment` tool Qwen calls |
 | `insufficient` — question outside coverage | 10% | justified refusal (MHQ090 shape) |
 | `robust` — tool error, empty result, more facts supplied than asked | 8% | don't hedge, don't pad |
 
