@@ -790,7 +790,7 @@ network. Phase 0 and the whole agentic loop are done and merged.
 | **B — agent** | **Complete and merged.** `parser` `brain` `guard` `budget` `synth` `loop`, 97 tests. Verified end-to-end against the live Qwen |
 | **D — training** | Active on `feat/training`. 3,773 records generated against the shared `src/prompts.py` |
 | **A — tools** | **Complete and merged.** `corpora` `rba` `afr` `asx` `registry`, 119 tests |
-| **C — serving/eval** | **Not started.** No `app.py`, no `run_offline_eval.py` — this is now the only gap |
+| **C — serving/eval** | `app.py` **done** (20 tests, verified over HTTP). `run_offline_eval.py` is the last gap |
 
 ### The measurement that should drive the next decisions
 
@@ -803,10 +803,20 @@ retrieved `41 / 175 / 20 / 21` — perfectly correct. Scored with the frozen
 | Base Nemotron, `DOMAIN_PREDICT_MODE=llm` | **0 / 10** |
 | `reference_answer` | 10 / 10 |
 
-**It had all four numbers right and still scored zero**, because it emitted them as
-a bullet list and then hedged (*"it is not possible to determine the exact
-number"*) while holding the number. That is §5.3's predicted base failure mode —
-thinking out loud and hedging — and it is the compound-component gate in F5.
+**It had all four numbers right and still scored zero.** Cause isolated by
+re-scoring three variants:
+
+| Answer | Score |
+|---|---|
+| bullet list **+ self-contradiction** | **0/10** |
+| same bullet list, contradiction removed | **10/10** |
+| perfect prose **+ self-contradiction** | **0/10** |
+
+So the sole cause is the disclaimer *"it is not possible to determine the exact
+number"* — **not the formatting.** The judge is format-tolerant, consistent with
+F6's `NATURAL_SYNTHESIS` verdict. This is §5.3's predicted base failure mode
+(thinking out loud and hedging), and the defence is `SYNTH_SYSTEM`'s "Do not
+hedge" plus the adapter, not output shape.
 
 Three things follow. **The harness is not the bottleneck.** The 30% base-vs-FT
 comparison now has a real base arm on the hardest question class. And session D's
@@ -835,10 +845,9 @@ the highest-leverage remaining work after tools exist at all.
 
 ### Next, in order of leverage
 
-1. **C — `app.py`.** The only thing between us and a scoreable submission.
-   `/health` is a hard gate: fail it and the entire 40% zeroes. Load corpora at
-   import, before uvicorn binds, so the port opens only once the AFR index is
-   built (~25s).
+1. ~~**C — `app.py`**~~ **done.** Port stays closed for 30s while corpora warm,
+   then `/health` answers in 0.4ms and is proven immune to both models and the
+   corpus being gone. `POST /query` answered MHQ001 **10/10 with node1 down**.
 2. **C — offline eval.** Two passes never interleaved, penalised score, failure
    attribution. The frozen `component_judge` and the `real_corpus` seam in
    `tests/test_registry.py` are both ready to reuse.
@@ -929,8 +938,11 @@ Every value below reproduces its published reference answer exactly.
   `array("i")` because ~44M (token, record) pairs as boxed ints cost multiple GB,
   and each node's unified memory is SHARED with vLLM — an oversized index can OOM
   the brain, not just the agent.
-- **Tools must return prose, not `k=v`.** Measured: a `k=v` tool result made base
-  Nemotron echo that shape and score **0/10 on MHQ001 with every number correct**.
+- **Tools returning prose helps, but is NOT what fixes scoring.** An earlier note
+  here claimed a `k=v` tool result caused the 0/10 on MHQ001. That was wrong —
+  isolated, the cause is self-contradiction alone (see §11). Prose is still worth
+  having as a better exemplar for the model, and `deterministic_fallback` scores
+  **10/10** precisely because it never hedges.
 
 ### ⚠️ Open organizer question — date basis
 
@@ -993,3 +1005,29 @@ entry points are the right place to load `.env` if we want the convenience.
 
 **Tracing stays OFF for the scored run** (F12). This whole section is dev-time
 evidence gathering on the *public* questions, whose text is already ours.
+
+
+---
+
+## 14. node1 is down — session D has taken the GPU (2026-07-31)
+
+`10.0.1.11:8001` returns nothing and LiteLLM reports
+`InternalServerError ... Connection error` for `domain-ft`. The brain on node0 is
+unaffected. This is the event §5.2 and §2 both warned about: **the base control
+arm disappears the moment training starts.**
+
+Consequences, in order of how much they cost:
+
+1. **The base-vs-fine-tuned comparison's base arm must already be banked.** If it
+   is not, it cannot be collected until node1 is free again, and it is half of a
+   30%-weighted deliverable. Session D owns this.
+2. **`DOMAIN_PREDICT_MODE=llm` currently degrades to the deterministic fallback.**
+   That is not a failure — `POST /query` still answered MHQ001 **10/10** with
+   node1 gone, because `deterministic_fallback` never hedges. §7's invariant is
+   doing exactly what it was designed for.
+3. **`DOMAIN_PREDICT_MODE=mock` must not be what ships.** The fallback scoring
+   well is a safety net, not a substitute: shipping without a served adapter
+   forfeits the entire 30% model-quality category regardless of the harness score.
+
+Nothing in `src/` needs changing for this. It is recorded so nobody re-diagnoses
+a 500 on `domain-ft` as a harness bug.
