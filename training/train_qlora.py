@@ -258,11 +258,42 @@ def main() -> None:
                     help="10 steps, measure step time, do not save a final adapter")
     ap.add_argument("--max-steps", type=int, default=None,
                     help="override; set from the smoke-test measurement")
+    ap.add_argument("--gpu-fraction", type=float,
+                    default=float(os.environ.get("GPU_MEM_FRACTION", "0") or 0),
+                    help="cap this process at a fraction of total GPU memory; 0 = uncapped")
+    ap.add_argument("--batch-size", type=int, default=None,
+                    help="override per_device_train_batch_size (memory pressure relief)")
+    ap.add_argument("--grad-accum", type=int, default=None,
+                    help="override gradient_accumulation_steps; pair with --batch-size to "
+                         "hold the effective batch (and therefore the tuned LR) constant")
+    ap.add_argument("--grad-checkpointing", dest="grad_ckpt",
+                    action=argparse.BooleanOptionalAction, default=None,
+                    help="override gradient_checkpointing. The config disables it to buy "
+                         "throughput, which assumes the whole GB10 is available; under a "
+                         "--gpu-fraction cap the ~36 GiB of stored activations is what "
+                         "OOMs, so it must go back on.")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text())
     tcfg = cfg["training"]
     data_dir = Path(cfg["data_dir"])
+
+    if args.batch_size is not None:
+        tcfg["per_device_train_batch_size"] = args.batch_size
+    if args.grad_accum is not None:
+        tcfg["gradient_accumulation_steps"] = args.grad_accum
+    if args.grad_ckpt is not None:
+        tcfg["gradient_checkpointing"] = args.grad_ckpt
+
+    # The GB10's memory is unified: vllm-brain's ~50 GiB and the desktop session are
+    # carved out of the same 121 GiB the trainer allocates from. Cap ourselves so an
+    # allocator spike cannot evict the serving container another workstream depends on.
+    if args.gpu_fraction > 0:
+        torch.cuda.set_per_process_memory_fraction(args.gpu_fraction, 0)
+        total = torch.cuda.mem_get_info()[1] / 2**30
+        free = torch.cuda.mem_get_info()[0] / 2**30
+        print(f"== gpu budget ==\n  cap {args.gpu_fraction:.0%} of {total:.1f} GiB "
+              f"= {args.gpu_fraction * total:.1f} GiB | actually free now {free:.1f} GiB")
 
     print("== guards ==")
     verify_contract(data_dir)

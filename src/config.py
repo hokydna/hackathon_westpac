@@ -96,7 +96,31 @@ SYNTH_TIMEOUT_S = 15.0
 SAFETY_MARGIN_S = 5.0
 LOOP_DEADLINE_S = PENALTY_THRESHOLD_S - SYNTH_TIMEOUT_S - SAFETY_MARGIN_S  # 40.0
 
-BRAIN_TIMEOUT_S = 5.0  # measured: ~1.0s per turn with thinking off
+# 12.0, not 5.0. The old value's comment said "measured: ~1.0s per turn with
+# thinking off", but that measurement did not hold on the served path. Measured
+# 2026-07-31 over the first 6 public questions, real registry schemas, generous
+# 60s timeout so the truth was visible:
+#
+#   MHQ001 4.45s (81 tok)   MHQ035 8.12s (160 tok)   MHQ040 1.23s (14 tok)
+#   MHQ045 4.14s (76 tok)   MHQ049 3.37s (59 tok)    MHQ055 3.37s (60 tok)
+#
+# Latency tracks completion tokens, so any question where the brain plans in
+# prose (>~90 tokens) blew the 5s cap. Live via uvicorn, MHQ001 and MHQ035 both
+# returned `TimeoutError: timed out` at 5.05s on their FIRST call.
+#
+# That is the worst possible failure. loop.answer breaks out on `not reply.ok`
+# BEFORE parser.parse, so the question synthesises with zero evidence and
+# answers "I could not answer this question" -- a scored zero. Overshooting
+# PENALTY_THRESHOLD_S only costs 20% of one question. The old value traded a
+# 20% risk for a 100% loss on 2 of the first 3 public questions.
+#
+# Ceiling is 13.33s: tests/test_base_commit.py asserts
+# BRAIN_TIMEOUT_S * MAX_TURNS < LOOP_DEADLINE_S (12*3=36 < 40). LOOP_DEADLINE_S
+# and SAFETY_MARGIN_S are untouched, so the 60s envelope derivation still holds.
+#
+# Env-overridable so a slow cluster can be absorbed without editing this frozen
+# file mid-flight.
+BRAIN_TIMEOUT_S = float(os.getenv("BRAIN_TIMEOUT_S") or 12.0)
 
 # Runaway backstop, NOT the primary governor -- LOOP_DEADLINE_S is (kickoff F9).
 # Note turns != tool calls: one brain turn can emit several <tool_call> blocks,

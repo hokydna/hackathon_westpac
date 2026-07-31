@@ -1,0 +1,16 @@
+{
+  "steps": 40,
+  "planned_steps": 189,
+  "early_cut": true,
+  "cut_reason": "time-boxed: promoted at step 40 of 189 on request",
+  "last_loss": 0.5488327026367188,
+  "epoch": 0.21164021164021163,
+  "base_model": "/models/Llama-3.1-Nemotron-Nano-8B-v1",
+  "adapter_name": "nemotron-8b-finance-lora",
+  "overrides": {
+    "gpu_fraction": 0.4,
+    "batch_size": 16,
+    "grad_accum": 1,
+    "gradient_checkpointing": true
+  }
+}
