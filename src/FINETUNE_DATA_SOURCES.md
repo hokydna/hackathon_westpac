@@ -93,7 +93,7 @@ These slices need only the corpora. Every gold answer is a calculation you own e
 | Corpus | Path | Shape | Gotchas |
 |---|---|---|---|
 | RBA | `data set/RBA Rates/RBA-rates.jsonl` | 175 rows, 2010-02-03 → 2026-06-17 | **UTF-8 BOM → `encoding='utf-8-sig'`.** Dates are `"3 Feb 2010"`. All values are **strings**, incl. signed changes (`"+0.25"`, `"0.00"`) |
-| ASX | `data set/ASX/<Name>-ASX-2015-2021.jsonl` | 18 files × 1,774 rows = 31,932 | Tickers carry `.AX`. Tabcorp = `TAH.AX`, excluded in 5 of 15 public questions |
+| ASX | `data set/ASX/<Name>-ASX-2015-2021.jsonl` | 18 files × 1,774 rows = 31,932 | `<Name>` is the COMPANY, not the ticker — `Tabcorp-…` holds `TAH.AX` and 7 of 18 stems mismatch. Read the `ticker` field. Excluded in 5 of 15 public questions |
 | AFR | `data set/AFR/AFR_<YYYYMMDD>-<YYYYMMDD>.jsonl` | 85 files, 219,538 articles, 780 MB | `PUBLICATIONDATE` is a `YYYYMMDD` **string** — slice `[:4]`/`[:6]`, never date-parse |
 
 **AFR search rule — reproducibility-critical.** Case-insensitive, `\bword\b` anchored, matched

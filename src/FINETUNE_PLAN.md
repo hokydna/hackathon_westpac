@@ -126,7 +126,7 @@ Root: `data set/` at the repo root (`~/Hackathon_3107/hackathon_westpac`), resol
 | Dataset | Path | Shape | Gotchas |
 |---|---|---|---|
 | RBA | `RBA Rates/RBA-rates.jsonl` | 175 rows, 2010-02-03 → 2026-06-17 | **UTF-8 BOM — open with `encoding='utf-8-sig'`.** Dates are `"3 Feb 2010"`, not ISO. All values are **strings**, including signed changes (`"+0.25"`, `"0.00"`) |
-| ASX | `ASX/<TICKER>-ASX-2015-2021.jsonl` | 18 files × 1,774 rows = 31,932 | Tickers carry `.AX`. Tabcorp is `TAH.AX` and is excluded in 5 of 15 public questions |
+| ASX | `ASX/<CompanyName>-ASX-2015-2021.jsonl` | 18 files × 1,774 rows = 31,932 | **Filenames are COMPANY names, not tickers** — `Tabcorp-…` holds `TAH.AX`, and 7 of 18 stems mismatch their ticker prefix. Read the `ticker` field; deriving it from the filename mis-keys `exclude_tickers` on the one ticker excluded in 5 of the 15 questions. Verified 2026-07-31 (kickoff §12) |
 | AFR | `AFR/AFR_<YYYYMMDD>-<YYYYMMDD>.jsonl` | 85 files, 219,538 articles, 780 MB *(per `src/Agent_Harness_Implementation_Plan.md`)* | `PUBLICATIONDATE` is a `YYYYMMDD` **string**. Slice `[:4]`/`[:6]`; do not date-parse |
 
 Field schemas:
