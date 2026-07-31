@@ -1,10 +1,18 @@
 # Agent Harness — Implementation Plan
 
-**Date:** 2026-07-31
+**Date:** 2026-07-31 (reconciled to `SESSION_KICKOFF.md` on 2026-07-31)
 **Status:** design approved, not yet implemented
 **Constraints driving every decision below:** <12 hours to submission, 2–3 people building in parallel.
 
-This is the single planning artefact for `src/`. It exists so three people can start
+> **`src/SESSION_KICKOFF.md` is the source of truth.** This file is the harness design
+> reference and is subordinate to it. Where they disagree, the kickoff wins. Corrections
+> already applied here: the tool-result cap is **1,200** not 2,000 (kickoff F2); the
+> difficulty split is **4 easy / 7 medium / 4 hard** (F7); the latency budget is decomposed
+> (F10); §11's warmup is a **ratio** (F13); merges are sequential (F14); there are **four**
+> sessions, not three (§12). Repo facts in §12.2 describe the old organizer checkout — see
+> kickoff §2 "Repo facts" for the live ones.
+
+This is the design artefact for `src/`. It exists so several people can start
 simultaneously without blocking each other. No implementation code lives in this file.
 
 ---
@@ -50,7 +58,10 @@ wrong risk to take on a 12-hour clock).
 ```
 src/
 ├── Agent_Harness_Implementation_Plan.md   ← this file
-├── config.py           every env var + budget constant, one place
+├── SESSION_KICKOFF.md  ← the source of truth; read it first
+├── config.py           every env var + budget constant, one place  [FROZEN]
+├── prompts.py          SYNTH_SYSTEM / SYNTH_USER, shared with training  [FROZEN]
+├── contracts.py        ToolCall, AgentResult, ALL_TOOLS/BRAIN_SCHEMAS stubs  [FROZEN]
 ├── app.py              FastAPI: GET /health, POST /query — thin
 ├── agent/
 │   ├── loop.py         orchestrator: turn cap, deadline, trace assembly
@@ -58,17 +69,28 @@ src/
 │   ├── parser.py       XML <tool_call> → [ToolCall]
 │   ├── guard.py        allowlist + argument coercion/validation
 │   ├── synth.py        Nemotron synthesis: mock | llm
-│   └── budget.py       token clamping + deadline tracking
-└── tools/
-    ├── corpora.py      startup loaders: RBA rows, ASX series, AFR inverted index
-    ├── rba.py          deterministic RBA metrics
-    ├── asx.py          deterministic ASX metrics
-    ├── afr.py          index-backed count / count_by_month / share / retrieve
-    └── registry.py     @tool definitions → ALL_TOOLS + BRAIN_SCHEMAS
+│   ├── budget.py       token clamping + deadline + tool_result_message()
+│   └── tracing.py      @traceable no-ops unless LANGSMITH_TRACING  [FROZEN]
+├── tools/
+│   ├── corpora.py      startup loaders: RBA rows, ASX series, AFR inverted index
+│   ├── rba.py          deterministic RBA metrics
+│   ├── asx.py          deterministic ASX metrics
+│   ├── afr.py          index-backed count / count_by_month / share / retrieve
+│   └── registry.py     @tool definitions → ALL_TOOLS + BRAIN_SCHEMAS
+└── eval/
+    ├── component_judge.py   one expected_fact → YES/NO vs agent-brain  [FROZEN]
+    └── run_offline_eval.py  score all 15 public questions — the acceptance gate
 
 tests/                  pytest, asyncio_mode=auto (langchain-basics pattern)
-eval/run_public.py      score all 15 public questions — the acceptance gate
+tests/fixtures/dataset/ tiny (<1MB) corpus, one row per §8 gotcha
+requirements.txt        PINNED
+pyproject.toml          requires-python, asyncio_mode, test markers
 ```
+
+Six files are **frozen in the base commit** and imported but never edited — that is what
+lets four sessions run without merge conflicts. `eval/` lives under `src/` (not at the repo
+root as an earlier draft had it) so it is one importable package: `python -m
+src.eval.run_offline_eval`.
 
 Each of the four cluster-level hazards lands in exactly one file: XML parsing in
 `parser.py`, thinking suppression in `brain.py`, context/deadline in `budget.py`, model
@@ -104,15 +126,22 @@ in the brain's context, which keeps clamping in exactly one place.
 
 | Owner | Files | Blocked by |
 |---|---|---|
-| **A** | `tools/` — all five files | nothing, start now |
-| **B** | `agent/` — all six files | nothing; codes against §3 contracts, tests with a fake brain |
-| **C** | `config.py`, `app.py`, `eval/`, submission hardening | nothing |
+| **A** | `src/tools/` — all five files | nothing, start now |
+| **B** | `src/agent/` — all six (not `tracing.py`, which is frozen) | nothing; codes against §3 contracts, tests with a fake brain |
+| **C** | `src/app.py`, `src/eval/` (**except** the frozen `component_judge.py`), submission hardening | nothing |
+| **D** | `training/` entirely | node1 ssh (B1); nothing in `src/` |
+
+**`config.py` is no longer owner C's.** It is frozen in the base commit and every session
+imports it read-only — the same for `prompts.py`, `contracts.py`, `tracing.py` and
+`eval/component_judge.py`. That is the §12.1 rule applied across both workstreams, and it is
+what pulled three more files into the base commit than §12.1 originally listed. See
+`SESSION_KICKOFF.md` §4.
 
 Owner B never needs owner A's real tools to make progress: the loop is driven by a fake
 brain returning canned XML and a stub registry.
 
-An "owner" may be a person or a Claude session. See §12 for the protocol that lets three
-Claude sessions run these three tracks concurrently without merge conflicts.
+An "owner" is a Claude session. See §12 for the reasoning and `SESSION_KICKOFF.md` §5–§6 for
+the roster and the prompts.
 
 ---
 
@@ -161,15 +190,36 @@ Scoring thresholds: ≤60s full credit, 60–300s −20%, >300s zero. ~6x headro
 
 Three rules live in `budget.py`:
 
-1. **Turn cap** — `MAX_TURNS = 3`. The handout advises ≤3 tool calls and warns that
-   looping more than 5 times will exceed 60s.
-2. **Wall deadline** — 45s from request start. On breach, stop looping and synthesize
-   from whatever trace exists rather than returning nothing.
-3. **Context clamp** — every tool result truncated to 2,000 characters, AFR article text
-   to 1,500, and the whole message list held under 3,000 tokens (drop oldest tool results
-   first, never the system prompt or the question). Both models are capped at
-   `max_model_len 4096`, so this is a correctness rule, not a nicety. Never put raw rows
-   in context.
+1. **Turn cap** — `MAX_TURNS = 3`, as a runaway backstop rather than the primary governor.
+   The handout advises ≤3 tool calls and warns that looping more than 5 times will exceed
+   60s. **Note that turns ≠ tool calls:** one brain turn can emit several `<tool_call>`
+   blocks, so a 3-turn cap already permits 6+ calls. `steps` in the response and `MAX_TURNS`
+   are therefore different quantities — document them as such (kickoff F9).
+2. **Wall deadline** — `LOOP_DEADLINE_S = 40s`, bounding **when the loop must stop**, not
+   the whole request. On breach, stop looping and synthesize from whatever trace exists
+   rather than returning nothing.
+
+   ```python
+   PENALTY_THRESHOLD_S = 60.0   # >60s costs 20% of the question's points
+   SYNTH_TIMEOUT_S     = 15.0
+   SAFETY_MARGIN_S     =  5.0
+   LOOP_DEADLINE_S     = PENALTY_THRESHOLD_S - SYNTH_TIMEOUT_S - SAFETY_MARGIN_S   # 40.0
+   ```
+
+   *40, not the 45 this plan originally specified.* 45s of looping plus a 15s synthesis
+   timeout is 60s before FastAPI even serialises, landing on the wrong side of the penalty
+   line. Assert the sum in `test_budget_invariants` so tuning one constant cannot silently
+   break the total. Resolved in kickoff F10.
+3. **Context clamp** — every tool result truncated to **1,200 characters**
+   (`config.TOOL_RESULT_CHAR_CAP`), AFR article text to 1,200, and the whole message list
+   held under 3,000 tokens (drop oldest tool results first, never the system prompt or the
+   question). Both models are capped at `max_model_len 4096`, so this is a correctness rule,
+   not a nicety. Never put raw rows in context.
+
+   *1,200, not the 2,000 this plan originally specified.* `FINETUNE_PLAN.md` §4.4 caps
+   training-time `tool_results` at 1,200 against `max_seq_len = 512`, and training and
+   inference **must** clamp identically or the adapter is served a context shape it never
+   saw. Resolved in kickoff F2.
 
 Our own timeouts must sit well under the organizer LiteLLM config's
 `request_timeout: 120` with `num_retries: 2`, whose worst case is 360s on a single call
@@ -205,7 +255,9 @@ concurrent `/query` requests and state must not bleed between them.
 Measured this session. Implementers should **not** re-derive these — use them as test
 fixtures.
 
-**Datasets** (`AI_Industry_Training_Hackathon/data set/`)
+**Datasets** — `data set/` at the repo root, resolved through `config.DATASET_DIR` (absolute,
+so every worktree reads one copy). The directory is **untracked**, so worktrees do not contain
+it; unit tests use `tests/fixtures/dataset/` instead (kickoff F11).
 
 | Dataset | Shape |
 |---|---|
@@ -271,7 +323,9 @@ the 30% model-quality evidence — start collecting that side now.
 
 ## 9. Tool surface
 
-Derived from the real 15-question bank (5 easy / 7 medium / 3 hard; 8 cross-dataset).
+Derived from the real 15-question bank (**4 easy / 7 medium / 4 hard**; 8 cross-dataset;
+150 points total). Re-measured from `public_questions.jsonl` — the 5/7/3 in earlier drafts
+was wrong, and eval slices must be built on the real distribution (kickoff F7).
 Items marked ★ are required by the question bank but absent from the execution guide's
 metric list — they are easy to miss.
 
@@ -310,9 +364,12 @@ from final synthesis and needs its own prompt path in `synth.py`.
 TDD throughout: write the failing test, confirm red, implement, confirm green, commit.
 Ordered so the walking skeleton exercises the real loop shape as early as possible.
 
-**Step 0 — scaffold (owner C, ~20 min)**
-`config.py` with every env var and budget constant; `tests/conftest.py`; `.gitignore`
-excluding `data set/`. Freeze the §3 contracts as type stubs so A and B can import them.
+**Step 0 — the base commit (Phase 0, one session before anyone forks, ~40 min)**
+Not owner C's — this is `SESSION_KICKOFF.md` §4 and it is **blocking**. `config.py` with every
+env var and budget constant, `prompts.py`, `contracts.py`, `eval/component_judge.py`,
+`agent/tracing.py`, `tests/conftest.py`, `tests/fixtures/dataset/`, `requirements.txt` +
+`pyproject.toml`, the `role:"tool"` probe, and the judge calibration. Every one of these is a
+file two or more sessions would otherwise both write.
 
 **Step 1 — walking skeleton (owner C, ~30 min)**
 `app.py` with `GET /health` returning 200 and `POST /query` returning a hardcoded answer
@@ -349,9 +406,13 @@ wiring and collects the base-model side of the comparison evidence.
 `registry.py` exports `ALL_TOOLS` and `BRAIN_SCHEMAS`. First real end-to-end `/query`.
 
 **Step 9 — eval gate (owner C, ~1h)**
-`eval/run_public.py` scoring all 15 public questions with per-component graders. This is
-the acceptance gate; a systematic miss is a bug in the synthesis prompt or tool coverage,
-never something to patch in the harness.
+`src/eval/run_offline_eval.py` scoring all 15 public questions via the frozen
+`src/eval/component_judge.py`. Two passes, never interleaved: collect all 15 answers timed
+under 3 concurrent workers, then judge untimed (running the judge inline contends for the
+same vLLM brain and corrupts the timings). Headline number is the **penalised** score —
+`earned_points × (1.0 if t≤60s else 0.8 if t≤300s else 0.0)`. This is the acceptance gate; a
+systematic miss is a bug in the synthesis prompt or tool coverage, never something to patch
+in the harness, and never a question-ID-specific hardcoded answer. See kickoff §6.4.
 
 **Step 10 — hardening (owner C, ~45 min)**
 Three concurrent `/query` requests with distinct questions, asserting no crossed answers.
@@ -383,13 +444,26 @@ Someone must chase the organizers for these **in parallel with** the `src/` buil
 architecture credit with it.
 
 When training does happen, use the handout's baseline, not the older spec's:
-`LORA_RANK=32`, `LR=5e-5`, `MAX_SEQ_LEN=512`, `MAX_STEPS=100`, `WARMUP_STEPS=50`,
-`CHECKPOINT_EVERY=20`. The handout warns in bold that `LR=1e-4` causes a loss spike at
-warmup step 50, and reports the step-20 checkpoint already beating base (val loss 0.098).
+`LORA_RANK=32`, `LR=5e-5`, `MAX_SEQ_LEN=512`, `CHECKPOINT_EVERY=20`, and
+**`warmup_ratio=0.10`** with `max_steps` **measured** by a smoke test rather than fixed at
+100. The handout warns in bold that `LR=1e-4` causes a loss spike at warmup step 50, and
+reports the step-20 checkpoint already beating base (val loss 0.098).
+
+*The handout's `WARMUP_STEPS=50` assumes a 100-step run and must not be copied literally.*
+On a 60-step run a fixed 50-step warmup means the LR never reaches target and the model
+trains on essentially nothing — `FINETUNE_PLAN.md` §8.1 calls this the most likely silent
+failure in the whole project. Use a ratio (kickoff F13). `FINETUNE_PLAN.md` is authoritative
+for everything in this section.
 
 ---
 
-## 12. Running three Claude sessions in parallel
+## 12. Running parallel Claude sessions
+
+> **Superseded in the operational details.** `SESSION_KICKOFF.md` §4–§6 is what sessions
+> actually execute: **four** sessions (the training track is now a first-class stream, not a
+> future arrival), a larger base-commit set, corrected repo facts, and copy-paste prompts.
+> §12.1 below — the *rule* — is the part that still governs. Read this for the reasoning and
+> the kickoff for the instructions.
 
 ### 12.1 The rule that makes it work
 
@@ -409,31 +483,20 @@ Applied to this plan, three things must land in the base commit:
 One file needs a deliberate owner call: `src/tools/registry.py` is listed in §10 step 8 as
 "owners A+B". Give it to **A alone**. B imports it and never edits it.
 
-### 12.2 Base commit — do this before forking (single session, ~20 min)
+### 12.2 Base commit — do this before forking
 
-Two repo facts make this a prerequisite rather than a nicety:
+> **Dead text, kept for the reasoning only.** This subsection described the organizer's
+> checkout: `origin` pointing at `cognitivo-aifactory/…`, `data set/` tracked, no
+> `.gitignore`. **All three are resolved.** The live repo is
+> `~/Hackathon_3107/hackathon_westpac`, `origin` is ours, `data set/` is untracked and
+> ignored, and the `.gitignore` is in place. There is no `team` remote and none is needed.
+> **Use `SESSION_KICKOFF.md` §2 "Repo facts" and §4 for what to actually run.**
 
-- `origin` points at the **organizer's** repo, `cognitivo-aifactory/AI_Industry_Training_Hackathon`.
-  Never push there. Add our own remote and push to that.
-- `data set/` is **tracked** — 106 files, 780MB. Each worktree gets its own copy of every
-  tracked file, so leaving it tracked costs ~2.3GB across three worktrees, and it must not
-  ship in a public submission repo anyway.
-
-```bash
-cd ~/Hackathon_3107/AI_Industry_Training_Hackathon
-
-printf '%s\n' 'data set/' '.worktrees/' '__pycache__/' '*.pyc' '.venv/' '.env' > .gitignore
-git rm -r --cached "data set"        # untrack; leaves the 780MB on disk
-git remote add team git@github.com:<our-org>/<our-repo>.git
-
-# ... add config.py, contract stubs, tests/conftest.py, this plan ...
-git add -A && git commit -m "Base: contracts, config, gitignore, plan"
-git push team main
-```
-
-Because `data set/` becomes untracked, worktrees won't contain it. `config.py` therefore
-resolves datasets through a `DATASET_DIR` env var, defaulting to the main checkout's
-absolute path — one variable, and every worktree reads the same single 780MB copy.
+The reasoning that still applies: because `data set/` is untracked, **worktrees do not
+contain it.** `config.py` therefore resolves datasets through an absolute `DATASET_DIR` — one
+variable, and every worktree reads the same single 785 MB copy. And because CI and a judge's
+clone have neither, unit tests read `tests/fixtures/dataset/` instead, with only
+`needs_dataset`-marked tests touching the real corpus (kickoff F11).
 
 ### 12.3 Fork the sessions
 
@@ -442,21 +505,25 @@ Each Claude session isolates itself. If the session has a native worktree tool
 cleanup; otherwise it falls back to git:
 
 ```bash
-git worktree add .worktrees/tools        -b feat/tools
-git worktree add .worktrees/agent        -b feat/agent
-git worktree add .worktrees/serving-eval -b feat/serving-eval
+git worktree add .worktrees/tools        feat/tools
+git worktree add .worktrees/agent        feat/agent
+git worktree add .worktrees/serving-eval feat/serving-eval
+git worktree add .worktrees/training     feat/training
 ```
 
-`.worktrees/` is in `.gitignore` from §12.2, which the worktree skill requires before
-creating anything project-local.
+All four branches already exist off `main`, so omit `-b`. `.worktrees/` is git-ignored.
 
-Never run three sessions in the same working tree. They will fight over the git index and
+Never run two sessions in the same working tree. They will fight over the git index and
 over test runs, and a failure in one becomes unattributable.
 
 ### 12.4 Session briefs
 
-Give each session its own brief. Every brief points at this file and names the sections to
-read — that is what keeps three sessions consistent without any cross-talk between them.
+Give each session its own brief. Every brief points at a plan file and names the sections to
+read — that is what keeps the sessions consistent without any cross-talk between them.
+
+**The authoritative roster and the copy-paste prompts are `SESSION_KICKOFF.md` §5–§6**, which
+covers four sessions and adds `config.py` / `prompts.py` to every "must not touch" column. The
+table below is the three-session original, kept for its reasoning.
 
 **All three briefs share this preamble:**
 
@@ -478,13 +545,18 @@ Session B's highest-value instruction, worth stating explicitly in its brief: **
 
 ### 12.5 Integration
 
-Merge order is free — the branches are file-disjoint by construction. Suggested:
+Merge order is free — the branches are file-disjoint by construction — but merge **one at a
+time**, not as an octopus. An octopus merge aborts wholesale on any conflict and loses the
+signal about *which* boundary leaked, which is the only diagnostic a conflict gives you here
+(kickoff F14).
 
 ```bash
-git checkout main
-git merge feat/tools feat/agent feat/serving-eval   # expect zero conflicts
-pytest                                              # full suite
-python eval/run_public.py                           # the acceptance gate
+git switch main
+for b in feat/tools feat/agent feat/serving-eval feat/training; do
+  git merge --no-ff "$b" || { echo "BOUNDARY LEAKED: $b"; break; }
+done
+pytest                                   # full suite
+python -m src.eval.run_offline_eval      # the acceptance gate
 ```
 
 If a merge *does* conflict, the ownership boundary leaked. Fix the boundary, don't
@@ -494,19 +566,22 @@ Then §10 step 8's first real end-to-end `/query`, and step 10's hardening. Both
 three tracks landed, so they belong to whoever integrates rather than to a parallel
 session.
 
-### 12.6 Slotting in the eval and training plans when they arrive
+### 12.6 The eval and training plans — both have landed
 
-Those two plans are still pending, and this split is deliberately built so neither
-disturbs sessions A or B:
+Written when both were pending. Both now exist, and both slotted in exactly as predicted:
 
-- **Eval plan** → lands in `eval/`, which session C already owns. C's §10 step 9 becomes
-  "implement per the eval plan." Until it arrives, C has steps 1 and 10 to work on, so it
-  is not idle. If the eval plan turns out to be large, fork it to its own session on
-  `feat/eval` — still file-disjoint from everything above.
-- **Training plan** → lands in `training/`, which no session above touches at all. Fork it
-  as a fourth session on `feat/training` whenever the plan is ready. It is blocked on §11,
-  not on anything in `src/`.
+- **Eval plan** → `Cognitivo_Labs/Cognitivo_Labs/docs/superpowers/reviews/2026-07-31-evaluation-strategy-review.md`.
+  It specifies the component judge, calibration protocol, frozen-tool-results ablation,
+  failure attribution and penalised scoring. Session C implements §10 step 9 from it directly
+  and **is not waiting on anything.** Read it in place — never copy that tree into this repo,
+  it contains a plaintext credential. No separate `feat/eval` session: the review's §E.5
+  argued for one, the kickoff rejected it (F8), and the kickoff wins.
+- **Training plan** → `src/FINETUNE_PLAN.md` plus `src/FINETUNE_DATA_SOURCES.md`, landing in
+  `training/`, which no other session touches. It is session **D** on `feat/training`, and it
+  forks **in the same batch as A/B/C, not after them** — it is the critical path (2–3 h of
+  training behind a blocked ssh prerequisite), so it must start first, not last.
 
-Both slot in cleanly for the same reason A/B/C do: disjoint file ownership over a base
-commit that already contains every shared file. That is the whole trick — apply the §12.1
-rule to each new plan as it lands and the parallelism keeps holding.
+Both slotted in cleanly for the same reason A/B/C do: disjoint file ownership over a base
+commit that already contains every shared file. That is the whole trick — and applying the
+§12.1 rule to the training plan is what pulled `prompts.py` and `component_judge.py` into the
+base commit (kickoff F1, F4).

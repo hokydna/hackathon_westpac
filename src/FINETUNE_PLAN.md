@@ -2,10 +2,18 @@
 
 **Date:** 2026-07-31
 **Status:** design approved, not yet implemented
-**Owner:** fine-tuning workstream (one agent can execute this end to end)
+**Owner:** session **D** on branch `feat/training` (one agent can execute this end to end)
 **Budget:** 3 hours wall clock, hard stop
-**Companion doc:** `src/PLAN.md` (agent harness). This file covers only the model. The two
-workstreams share exactly one contract — §4 — and are otherwise independent.
+**Companion docs:** `src/Agent_Harness_Implementation_Plan.md` (the harness) and
+`src/FINETUNE_DATA_SOURCES.md` (per-field data provenance). This file covers only the model.
+
+> **`src/SESSION_KICKOFF.md` is the source of truth.** This file is session D's plan of record
+> and is subordinate to it. Already reconciled here: the tool-result cap is **1,200**, settled
+> (kickoff F2, was open question #3); the synthesis prompt is imported from the frozen
+> `src/prompts.py`, never restated (F1); the §7 evaluator imports the frozen
+> `src/eval/component_judge.py` rather than reimplementing it (F4); **judge calibration is
+> Phase 0's job, not yours** — you read `training/eval/judge_calibration.md` as an input (F6).
+> The old `src/PLAN.md` references were a phantom path and are corrected throughout (F3).
 
 ---
 
@@ -50,7 +58,7 @@ this plan.
 ## 2. Environment — verified 2026-07-31
 
 Everything in this section was measured on the live cluster during planning. Do not
-re-derive; use as fixtures. Items marked *(per `src/PLAN.md`)* were measured by an earlier
+re-derive; use as fixtures. Items marked *(per `src/Agent_Harness_Implementation_Plan.md`)* were measured by an earlier
 session and are trusted but not re-confirmed here.
 
 ### 2.1 Cluster
@@ -102,13 +110,14 @@ involvement and no LiteLLM config change**. This is a gift — do not miss it.
 
 ### 2.4 Datasets — paths confirmed
 
-Root: `AI_Industry_Training_Hackathon/data set/`
+Root: `data set/` at the repo root (`~/Hackathon_3107/hackathon_westpac`), resolved through
+`config.DATASET_DIR`. Untracked and git-ignored — 785 MB on disk, 0 in git.
 
 | Dataset | Path | Shape | Gotchas |
 |---|---|---|---|
 | RBA | `RBA Rates/RBA-rates.jsonl` | 175 rows, 2010-02-03 → 2026-06-17 | **UTF-8 BOM — open with `encoding='utf-8-sig'`.** Dates are `"3 Feb 2010"`, not ISO. All values are **strings**, including signed changes (`"+0.25"`, `"0.00"`) |
 | ASX | `ASX/<TICKER>-ASX-2015-2021.jsonl` | 18 files × 1,774 rows = 31,932 | Tickers carry `.AX`. Tabcorp is `TAH.AX` and is excluded in 5 of 15 public questions |
-| AFR | `AFR/AFR_<YYYYMMDD>-<YYYYMMDD>.jsonl` | 85 files, 219,538 articles, 780 MB *(per `src/PLAN.md`)* | `PUBLICATIONDATE` is a `YYYYMMDD` **string**. Slice `[:4]`/`[:6]`; do not date-parse |
+| AFR | `AFR/AFR_<YYYYMMDD>-<YYYYMMDD>.jsonl` | 85 files, 219,538 articles, 780 MB *(per `src/Agent_Harness_Implementation_Plan.md`)* | `PUBLICATIONDATE` is a `YYYYMMDD` **string**. Slice `[:4]`/`[:6]`; do not date-parse |
 
 Field schemas:
 
@@ -123,7 +132,7 @@ case-insensitive, `\bword\b` anchored, matched across `HEADLINE + SUBHEAD + INTR
 **combined**, counted **once per record**. A different field set silently yields different
 counts that will not match reference answers.
 
-*(per `src/PLAN.md`)* An inverted index tokenised with `[a-z0-9]+` is **exactly equivalent**
+*(per `src/Agent_Harness_Implementation_Plan.md`)* An inverted index tokenised with `[a-z0-9]+` is **exactly equivalent**
 to that rule — verified: `unemployment` 5,997 / `qbe` 1,546 / `nab` 7,372, identical to a
 full regex scan. Do **not** include `'` in the token class (`[a-z0-9']+` gives 6,903 for
 `nab` — wrong, because `\b` treats an apostrophe as a boundary). Index costs ~32 s to build,
@@ -176,11 +185,15 @@ in the same window as the base-model eval.
 
 ## 4. Contracts
 
-### 4.1 Synthesis prompt — shared with `src/agent/synth.py`
+### 4.1 Synthesis prompt — frozen in `src/prompts.py`
 
-**This is the one thing the harness workstream also depends on. Freeze it before generating
-data, and make the harness read the identical strings.** If training format and inference
-format drift, the adapter degrades to noise.
+**This is the one thing the harness workstream also depends on.** It is frozen in the base
+commit as `src/prompts.py` and imported verbatim by both `src/agent/synth.py` (session B) and
+`training/prepare_data.py` (you). **Neither of you may edit it** (kickoff F1). If training
+format and inference format drift, the adapter degrades to noise — that is the single failure
+mode that wastes the entire 3-hour budget.
+
+Reproduced here for reading only. `src/prompts.py` is the authority:
 
 ```python
 SYNTH_SYSTEM = (
@@ -239,11 +252,29 @@ An earlier draft of this section split MHQ001 into three strings
 Carry `points` alongside so the evaluator can weight recall the way the grader does, rather
 than treating a 10-point compound and a 2-point sentiment clause as equal.
 
+### 4.3 Loss masking — do not skip
+
+Train on **assistant tokens only**. Use TRL's completion-only collator (or
+`assistant_only_loss=True`). Without masking, the model learns to generate tool results as
+well as answers, which is the opposite of what we want.
+
+### 4.4 Sequence budget
+
+`max_seq_len = 512`. Build every record so the **assistant answer is never truncated** —
+cap `tool_results` at ~1,200 characters and truncate from the tool-results side only. A
+truncated answer teaches the model to emit nothing.
+
+The harness clamps tool results to the **same** cap at inference time:
+`config.TOOL_RESULT_CHAR_CAP = 1200`, frozen in the base commit and imported by both
+`src/agent/budget.py` and `training/prepare_data.py`. **Settled — 1,200** (kickoff F2). The
+harness plan's earlier 2,000 has been corrected; do not reintroduce it.
+
 ### 4.5 Compound components — the constraint that decides real points
 
 Four of the fifteen public questions are a **single 10-point all-or-nothing component** whose
 `expected_fact` bundles three or four numbers. **26.7% of public points sit behind four
-YES/NO gates where three of four numbers right scores zero:**
+YES/NO gates where three of four numbers right scores zero** (re-verified against
+`public_questions.jsonl`: 150 points total, these four carry 40):
 
 | ID | The one component |
 |---|---|
@@ -257,21 +288,6 @@ every sub-clause, in the reference's own shape.** Splitting a compound fact acro
 sentences is how a perfectly-computed answer scores zero. This binds §4.1 (the prompt), §4.2
 (the record), §6 (generation) and §7 (scoring) simultaneously — it is the single most
 load-bearing constraint in this plan.
-
-### 4.3 Loss masking — do not skip
-
-Train on **assistant tokens only**. Use TRL's completion-only collator (or
-`assistant_only_loss=True`). Without masking, the model learns to generate tool results as
-well as answers, which is the opposite of what we want.
-
-### 4.4 Sequence budget
-
-`max_seq_len = 512`. Build every record so the **assistant answer is never truncated** —
-cap `tool_results` at ~1,200 characters and truncate from the tool-results side only. A
-truncated answer teaches the model to emit nothing.
-
-The harness must clamp tool results to the same cap at inference time (`src/PLAN.md` §6
-currently says 2,000 chars — **reconcile these two numbers before training**).
 
 ---
 
@@ -391,11 +407,15 @@ present, and the only local precedent is inherited from a legal-title-generation
 companion review (`Cognitivo_Labs/.../reviews/2026-07-31-evaluation-strategy-review.md` §5)
 makes this case at length.
 
-Instead, replicate the organizer's judge mechanically:
+Instead, replicate the organizer's judge mechanically — and do it by **importing the frozen
+`src/eval/component_judge.py`** from the base commit rather than writing a second one.
+Session C's offline harness imports the same module, so both workstreams report the same
+number for the same thing (kickoff F4). One `expected_fact` per call against `agent-brain`,
+`chat_template_kwargs={"enable_thinking": false}`, `temperature=0`, YES/NO out.
 
 | Metric | Definition |
 |---|---|
-| **Component recall** | over all `meta.required_facts` in heldout: fraction present in the generated answer. **The headline number.** |
+| **Component recall** | over all `meta.required_facts` in heldout: **points-weighted** — `sum(points where verdict==YES) / sum(max_points)`, not fraction-of-facts. **The headline number.** Component granularity varies sharply across the 15 (from one 10-point compound to five components worth 1–3 each), so an unweighted fraction misreads it and would flatter the adapter exactly where the points are. This is why §4.2 carries `points` alongside `required_facts`. |
 | **All-components rate** | fraction of examples where *every* required fact is present |
 | **Hedge rate** | fraction of answers matching `\b(approximately|roughly|about|around|~)\b` before a number — explicitly scored wrong |
 | **Unsupported-numeric rate** | fraction of answers containing a number absent from the tool results — the hallucination proxy |
@@ -431,6 +451,18 @@ the fallback.
 
 - Whatever checkpoint exists at **T+2:00** is the one that ships. No exceptions.
 - Base eval is banked **before** node1's GPU is disturbed. Non-negotiable ordering.
+
+  *Read that precisely.* The base arm scores the **heldout split**, so it cannot run before
+  the generator finishes — hence 0:50, not 0:00. What "first" means is **before training
+  takes node1's GPU**, which is the moment the control arm disappears. Nothing may touch
+  node1 between 0:00 and the base eval completing. The `/tokenize` measurement (§2.6) has the
+  same deadline and rides in the same window.
+- **Judge calibration is not yours.** It runs in Phase 0 before you fork, and you read
+  `training/eval/judge_calibration.md` as an input (kickoff F6). If that file does not exist,
+  say so and stop — do not generate 5,000 records against a guessed answer style, because
+  the wrong guess means regenerating all of them.
+- `T+0:00` is when **you** fork, not when the session started. The absolute clock in
+  `SESSION_KICKOFF.md` §3 puts your fork at T+0:40 of the overall build.
 - If the smoke test has not passed by **T+1:10**, switch to the §9 fallback immediately
   rather than debugging.
 
@@ -542,7 +574,8 @@ plan lives in `src/` by request; the artifacts below still go to `training/`.
 
 - [ ] `training/prepare_data.py` — the generator, with the §6.5 fixture assertions inline
 - [ ] `training/train_lora.py` — TRL/PEFT training script
-- [ ] `training/eval_compare.py` — the §7 evaluator, both arms
+- [ ] `training/eval_compare.py` — the §7 evaluator, both arms. **Imports** the frozen
+      `src/eval/component_judge.py`; does not reimplement the judge (kickoff F4)
 - [ ] `training/config.yaml` — every hyperparameter, including the measured `max_steps`
 - [ ] `training/data/{train,val,heldout}.jsonl` — or a documented regeneration command if
       too large to commit
@@ -565,11 +598,12 @@ before the final commit.
 1. **B1** — who owns node1 access, and how fast can it land? Everything queues behind this.
 2. Does node1 have internet for `pip install peft trl datasets accelerate`? If not, install
    on node0 and mount, or use `nemo:25.09` which already bundles them.
-3. Reconcile the tool-result character cap: this plan says ~1,200, `src/PLAN.md` §6 says
-   2,000. **Training and inference must agree** — pick one before generating data.
+3. ~~Reconcile the tool-result character cap.~~ **Closed 2026-07-31: 1,200.**
+   `config.TOOL_RESULT_CHAR_CAP = 1200`, frozen in the base commit, imported by both
+   workstreams (kickoff F2).
 4. Should the sentiment path share one adapter with synthesis (assumed yes, 12% of the mix)
    or be a second adapter? One adapter is assumed for time; note the assumption in
    `MODEL_SUMMARY.md`.
-5. `src/PLAN.md` §11 says the harness may still be mid-build. If `src/agent/synth.py` does
+5. `src/Agent_Harness_Implementation_Plan.md` §11 says the harness may still be mid-build. If `src/agent/synth.py` does
    not exist at T+2:20, the FT eval still runs standalone against the served endpoint — this
    workstream is not blocked by the harness.

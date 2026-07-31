@@ -9,7 +9,25 @@ smoke, regression, e2e, (5) LangSmith evaluation on every agentic path, cross-ch
 
 > ## ⚠️ Read this first — status of this document
 >
-> Written before I discovered the prior work. **Section E is superseded** by
+> **This is a historical review, not an instruction set. `src/SESSION_KICKOFF.md` is the source
+> of truth, and every finding below has been dispositioned in its §9** — adopted or rejected,
+> with the reason. Read §9 first; come here only for the argument behind a finding.
+>
+> **Adopted:** C1 (the `role:"tool"` probe → kickoff F15), C2 (latency decomposition → F10),
+> V12 (sequential merges → F14), A.2/D.3 (`requirements.txt`, `pyproject.toml`, tiny test
+> fixtures → F11), E.3's points-weighted `component_recall`, G2/E.5's structural point that
+> `config.py` and `tracing.py` must be in the base commit → F12.
+> **Rejected on the 12-hour clock:** `docs/steps/*`, `docs/DECISIONS/*` (ADRs), `CHANGELOG.md`,
+> pre-commit hooks, CI → F16. **Overruled:** C3's `MAX_TURNS = 5` (kickoff keeps 3, because
+> turns ≠ tool calls → F9) and E.5's separate `feat/eval` session (kickoff F8: session C owns
+> eval and is not waiting on anything).
+>
+> **§1's evidence table is pre-migration and now false.** The repo moved to
+> `hokydna/hackathon_westpac`: the plan is committed, `.gitignore` exists, `data set/` is
+> untracked, and `origin` is ours — so V1, V2, V3, V4 and V12 are all closed. See kickoff §2
+> "Repo facts".
+>
+> **Section E is superseded** by
 > `Cognitivo_Labs/Cognitivo_Labs/docs/superpowers/reviews/2026-07-31-evaluation-strategy-review.md`,
 > which is deeper and correct where we disagree. Read that instead for anything about measurement.
 >
@@ -21,9 +39,10 @@ smoke, regression, e2e, (5) LangSmith evaluation on every agentic path, cross-ch
 > pure functions. G3–G6 are superseded by that review's E1/E4; §E.4's "ask the organizers" is
 > resolved — the conservative default is already determined.
 >
-> **Sections A–D and §C1–C4 stand.** Version control, step notes, the test pyramid, the fixture
-> problem, and the four plan defects are not covered elsewhere. §A/§B overlap with the newer
-> `src/SESSION_KICKOFF.md` Phase 0 checklist — reconcile with that, it is the live artefact.
+> **Sections A–D and §C1–C4 stood, and have now been reconciled** into
+> `src/SESSION_KICKOFF.md` §4 and §9. That reconciliation is done — do not redo it, and do not
+> action anything from §A/§B/§G without checking §9 first, or you will spend the clock building
+> an ADR set the team decided to skip.
 >
 > **Also corrected below:** `component_recall` must be points-weighted (see §E.3), and the plan's
 > "5 easy / 7 medium / 3 hard" in §9 is wrong — measured: **4 easy / 7 medium / 4 hard**.
@@ -68,6 +87,12 @@ Keep all of it. Everything below is what is missing or wrong.
 ---
 
 ## 1. Evidence base for this review
+
+> **Stale as of the repo migration.** Rows about `git log`, `git remote`, `.gitignore`,
+> `git ls-files "data set"` and the untracked plan describe
+> `cognitivo-aifactory/AI_Industry_Training_Hackathon` as it was on 2026-07-31 **before** the
+> move to `hokydna/hackathon_westpac`. All of those conditions are resolved. Kept as the record
+> of why the base commit looks the way it does.
 
 Commands run and their results, so you can re-verify:
 
@@ -406,7 +431,9 @@ Each must produce a structured outcome, never an exception, because §7 promises
 denial; args that fail Pydantic after coercion follow the same path; and (worth adding) a tool name
 that differs only by case or whitespace is denied, not silently normalised into a match.
 
-**Budget** — clamp at exactly 2,000 chars and 1,500 for AFR text; the message list stays under 3,000
+**Budget** — clamp at exactly **1,200** chars (`config.TOOL_RESULT_CHAR_CAP`; the 2,000/1,500 this
+review was written against is superseded by kickoff F2, because training and inference must clamp
+identically); the message list stays under 3,000
 tokens by dropping *oldest tool results first* and **never** the system prompt or the question (assert
 both survive); deadline breach synthesises from a partial trace. Use a monkeypatched clock, not
 `sleep`, so the suite stays fast.

@@ -4,7 +4,11 @@
 **Scope:** the *data* for the Nemotron LoRA adapter only. Training config, serving and the
 timeline live in [FINETUNE_PLAN.md](FINETUNE_PLAN.md); this file answers one question —
 *for each training record, where does each field come from, and can I produce it right now?*
-**Companion:** [SESSION_KICKOFF.md](SESSION_KICKOFF.md) §2 (cross-plan defects F1–F8).
+
+> **[SESSION_KICKOFF.md](SESSION_KICKOFF.md) is the source of truth** (§2 defects F1–F8, §9
+> resolutions F9–F16). This file is subordinate. Two corrections applied: the record in §1 now
+> carries **`points`**, without which the headline metric cannot be points-weighted; and **Q1
+> judge calibration is Phase 0's, not session D's** — you read its result, you do not run it.
 
 ---
 
@@ -20,7 +24,7 @@ generation:**
 
 | # | Needs Qwen | Blocks? | Why |
 |---|---|---|---|
-| **Q1** | **Judge calibration** — does the component judge accept paraphrase, or only near-verbatim reference shape? | **YES — blocks answer-style choice for the whole set** | Decides whether the `assistant` target is natural synthesis or template reproduction. Changing it later means regenerating everything. ~120 calls, minutes. |
+| **Q1** | **Judge calibration** — does the component judge accept paraphrase, or only near-verbatim reference shape? **Run in Phase 0, before session D forks (F6) — D reads the result, D does not run it.** | **YES — blocks answer-style choice for the whole set** | Decides whether the `assistant` target is natural synthesis or template reproduction. Changing it later means regenerating everything. ~120 calls, minutes. |
 | **Q2** | **Sentiment + direction labels** for the `sentiment` slice | Blocks that slice only (12%) | No ground truth exists in the corpus. Sentiment is a judgement; you need a teacher or hand labels. |
 | **Q3** | **Real tool-call traces** — the actual shape/ordering/noise of `tool_results` at inference | Blocks fidelity, not generation | Train on a `tool_results` format that differs from what the live harness feeds Nemotron and the adapter degrades. Start with synthetic, resample once traces exist. |
 
@@ -49,6 +53,7 @@ Frozen contract, from `FINETUNE_PLAN.md` §4.2. Four fields, four different prov
     "slice": "rba_single",
     "datasets": ["RBA"],
     "required_facts": ["41 of the 175 decision records changed the rate: 20 increases and 21 decreases."],
+    "points":         [10.0],
     "tolerance": "exact"
   }
 }
@@ -58,9 +63,16 @@ Frozen contract, from `FINETUNE_PLAN.md` §4.2. Four fields, four different prov
 |---|---|---|
 | `system` | Verbatim from `src/prompts.py` (`SYNTH_SYSTEM`) | Yes — **frozen in the base commit, never edit** (F1) |
 | `user` → `{question}` | Your generator's phrasing templates | Yes |
-| `user` → `{tool_results}` | Deterministic computation over the corpora, serialised in the tool layer's format, **capped at 1,200 chars** | Yes (synthetic) / refine with Q3 |
+| `user` → `{tool_results}` | Deterministic computation over the corpora, serialised in the tool layer's format, **capped at 1,200 chars** (`config.TOOL_RESULT_CHAR_CAP`, F2) | Yes (synthetic) / refine with Q3 |
 | `assistant` | Template over the computed numbers | Yes — **style depends on Q1** |
-| `meta.required_facts` | The same computed numbers, one string per gradeable component | Yes |
+| `meta.required_facts` | The same computed numbers, one string per gradeable component — **1:1 with `grading.components`, never finer** | Yes |
+| `meta.points` | Points that component is worth, parallel array to `required_facts` | Yes |
+
+**`points` is mandatory, not optional.** `FINETUNE_PLAN.md` §4.2 carries it and an earlier
+draft of this file omitted it. Component recall is **points-weighted** —
+`sum(points where YES) / sum(max_points)` — because granularity varies from one 10-point
+compound (MHQ001) to five components worth 1–3 each (MHQ080). Without `points` the headline
+metric silently flatters the adapter exactly where the points actually are.
 
 Two rules that decide whether any of this works:
 
@@ -154,7 +166,12 @@ data."*
 
 ## 3. Tier B — what actually waits on Qwen
 
-### Q1 — Judge calibration *(blocks answer style for the entire set — do this first)*
+### Q1 — Judge calibration *(blocks answer style for the entire set — **owned by Phase 0**)*
+
+> **Not session D's task.** This runs in the Phase 0 window before any session forks, because
+> its result decides the answer style of every record D generates and D cannot afford to wait
+> on it or to guess. D's first act is to **read** `training/eval/judge_calibration.md`; if it
+> is absent, D stops and escalates rather than generating against a guess (kickoff F6).
 
 **The question:** the component judge asks Qwen a YES/NO per `expected_fact`. Does it accept a
 *paraphrase* with reordered facts and reformatted dates, or does it only accept something close
@@ -300,15 +317,19 @@ reasoning, not the verdict.
 ## 6. Execution order
 
 ```
-NOW, in parallel:
+PHASE 0, before session D forks (NOT D's work):
   [Q1] Judge calibration  ──────────────►  training/eval/judge_calibration.md
        ~120 Qwen calls, minutes                 decides answer style
-  [A]  Tier A generator: corpora loaders, metrics, templates
-       gate on MHQ001 / MHQ040 / MHQ061 before emitting a single row
 
-WHEN Q1 LANDS:
-  fix the assistant-answer style, emit train/val/heldout (80/10/10 by entity key)
+D's T+0:00 — first act, in parallel:
+  [read] training/eval/judge_calibration.md   <-- if absent, STOP and escalate
+  [A]    Tier A generator: corpora loaders, metrics, templates
+         gate on MHQ001 / MHQ040 / MHQ061 before emitting a single row
+
+THEN:
+  fix the assistant-answer style per Q1, emit train/val/heldout (80/10/10 by entity key)
   assert zero cross-split overlap, log it
+  bank the BASE-MODEL eval on the heldout split before training touches node1's GPU
 
 IN PARALLEL WITH TRAINING PREP:
   [Q2] Qwen teacher-labels a few hundred AFR articles  ──►  sentiment slice (12%)
@@ -318,8 +339,10 @@ WHEN SESSION A's REGISTRY LANDS (or a few real traces exist):
   [Q3] re-run format_tool_results(...) over the whole set. One function, one change.
 ```
 
-**Sequencing rule:** never let Q1, Q2 or Q3 stop Tier A. Tier A is 88% of the rows and
-zero-dependency; it should be generating within the first thirty minutes.
+**Sequencing rule:** never let Q2 or Q3 stop Tier A. Tier A is 88% of the rows and
+zero-dependency; it should be generating within the first thirty minutes. Q1 is the one
+exception — it gates *answer style*, which is why it was moved ahead of the fork rather than
+run alongside generation.
 
 **Cut order if the schedule slips:** cross-dataset slice 25% → 10%, then Q3 re-serialisation,
 then the `robust` slice.

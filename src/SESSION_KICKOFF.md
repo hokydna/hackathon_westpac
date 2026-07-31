@@ -1,10 +1,25 @@
 # Session Kickoff — how we start parallel implementation
 
-**Date:** 2026-07-31
+**Date:** 2026-07-31 (reconciled 2026-07-31, repo migration + review reconciliation)
 **Status:** ready to execute. Phase 0 is blocking; nothing forks until it lands.
+**Repo:** `~/Hackathon_3107/hackathon_westpac` → `git@github.com:hokydna/hackathon_westpac.git`
 **Covers:** `src/Agent_Harness_Implementation_Plan.md` (the harness) and `src/FINETUNE_PLAN.md`
 (the model). Both are design-approved. This file is the bridge between "approved" and
 "four Claude sessions are typing."
+
+> ## This file is the source of truth
+>
+> Where this document and any other `src/*.md` disagree, **this document wins.** The other
+> four are subordinate:
+>
+> | Doc | Standing |
+> |---|---|
+> | `Agent_Harness_Implementation_Plan.md` | Design reference for the harness. Its §6/§9/§11/§12 numbers are corrected here — read §2 and §9 below before trusting any constant in it. |
+> | `Agent_Harness_Plan_Review.md` | Review of the above. Its §E is superseded; §A–§D findings are resolved in §9 below, adopted or rejected explicitly. |
+> | `FINETUNE_PLAN.md` | Session D's plan of record, subordinate to §2 and §9 here. |
+> | `FINETUNE_DATA_SOURCES.md` | Session D's data provenance reference. |
+>
+> Do not fix a contradiction by editing one of those four. Fix it here, then propagate.
 
 Read this if you are about to start a session, or if you are the one who owns Phase 0.
 
@@ -20,6 +35,8 @@ The harness plan already contains the parallelism protocol (§12). This file:
 2. Turns the harness plan's §12.1 rule into a **concrete Phase 0 checklist** (§4) that
    also covers the fine-tuning workstream, which §12 did not.
 3. Gives **copy-paste kickoff prompts** for all four implementation sessions (§6).
+4. Resolves every open finding from `Agent_Harness_Plan_Review.md` — adopted or rejected,
+   with the reason (§9). Nothing from that review is left silently dropped.
 
 The one rule everything below serves:
 
@@ -62,8 +79,21 @@ Re-probed this session; every one of these still holds:
 - **No fine-tuning scripts on this box.** `~/Cognitivo_Training` has one `team.env`;
   `~/llm-eval-nim-demo` has one notebook. `MODELS_DIR` is unset. We write our own (both
   plans already assume this).
-- **`data set/` is still tracked** (780 MB) and `origin` is the **organizer's** repo. Never
-  push to `origin`.
+
+### Repo facts — changed 2026-07-31, supersedes every other doc
+
+The submission repo **moved**. Anything in the other four docs about remotes, `origin`, a
+`team` remote, or untracking `data set/` describes the old repo and is dead text.
+
+| Fact | Now |
+|---|---|
+| Working repo | `~/Hackathon_3107/hackathon_westpac` — **this** is the repo root for every session |
+| `origin` | `git@github.com:hokydna/hackathon_westpac.git` — **ours.** Push here. There is no `team` remote and none is needed |
+| Organizer's repo | `cognitivo-aifactory/AI_Industry_Training_Hackathon`, kept as a separate local checkout at `~/Hackathon_3107/AI_Industry_Training_Hackathon`. It is **not** a remote of this repo, so there is nothing to push to by accident |
+| `data set/` | Already untracked and ignored. 785 MB on disk, 0 bytes in git. **Never `git add -f` it** |
+| `.gitignore` | Already in place, covers `data set/`, weights, raw logs, secrets, `.worktrees/` |
+| Repo visibility | Must be **public** before submission — private and collaborator-only are rejected |
+| `submission.json` | Still template values (`mock-team`, `example/mock-team-agent`, `0123…4567`). Owned by the integrator, filled last |
 
 ---
 
@@ -91,20 +121,46 @@ inside D's training window.
 Do **not** fork until every box is ticked. Each of these is a file two or more sessions
 would otherwise both write.
 
-**Repo hygiene**
+**Repo hygiene — already done, verify only**
 
-- [ ] `.gitignore` — `data set/`, `.worktrees/`, `__pycache__/`, `*.pyc`, `.venv/`, `.env`
-- [ ] `git rm -r --cached "data set"` — untrack 780 MB; leaves it on disk
-- [ ] `git remote add team git@github.com:<our-org>/<our-repo>.git` — **never push to `origin`**
+- [x] `.gitignore` — `data set/`, weights, raw logs, secrets, `.worktrees/`
+- [x] `data set/` untracked — 785 MB on disk, 0 in git
+- [x] `origin` is our own repo; no `team` remote needed
 - [ ] Confirm nothing from `Cognitivo_Labs/` is copied into this repo. `Notes.md` line 25
       holds a plaintext cluster password and the submission repo must be fully public.
+- [ ] Repo set to **public** on GitHub (required; do this before the final gate, not at hour 11)
 
 **Shared code — the whole point of Phase 0**
 
 - [ ] `src/config.py` — every env var and budget constant, read from env, no hard-coded
-      endpoints. Must include `TOOL_RESULT_CHAR_CAP = 1200` (F2), `MAX_TURNS = 3`,
-      `REQUEST_DEADLINE_S = 45`, `BRAIN_TIMEOUT_S = 5`, `SYNTH_TIMEOUT_S = 15`,
-      `DATASET_DIR` (absolute, so worktrees share one 780 MB copy), `DOMAIN_PREDICT_MODE`.
+      endpoints. Must include `TOOL_RESULT_CHAR_CAP = 1200` (F2), `MAX_TURNS = 3` (F9),
+      the derived latency budget below (F10), `BRAIN_TIMEOUT_S = 5`,
+      `DATASET_DIR` (absolute, so worktrees share one 785 MB copy), `DOMAIN_PREDICT_MODE`,
+      and the `LANGSMITH_*` block from F12 — even though tracing ships off, the variables
+      must exist here or adding them later violates the frozen-file rule.
+
+      ```python
+      PENALTY_THRESHOLD_S = 60.0   # scoring boundary: >60s costs 20%
+      SYNTH_TIMEOUT_S     = 15.0
+      SAFETY_MARGIN_S     =  5.0
+      LOOP_DEADLINE_S     = PENALTY_THRESHOLD_S - SYNTH_TIMEOUT_S - SAFETY_MARGIN_S  # 40.0
+      ```
+
+      **`LOOP_DEADLINE_S` bounds when the loop must stop, not the whole request** (F10).
+      Assert the sum in `tests/test_budget_invariants.py` so nobody tunes one constant and
+      silently breaks the total.
+- [ ] `requirements.txt`, pinned, plus `pyproject.toml` with `requires-python`,
+      `asyncio_mode = "auto"` and the markers `unit, integration, contract, regression,
+      smoke, e2e, perf, needs_dataset` (F11). The module tree in the harness plan has no
+      dependency manifest at all, and "reproducibility" is a named rubric item.
+- [ ] `tests/fixtures/dataset/` — a **tiny** (<1 MB) corpus, one row per §8-gotcha of the
+      harness plan: a UTF-8 BOM, a `"+0.25"` string change, an apostrophe-adjacent `nab`,
+      a `PUBLICATIONDATE` on a month boundary, a `TAH.AX` row (F11). Without this, A's
+      tests only run on this box — worktrees have no `data set/`, so a judge cloning the
+      public repo cannot run the suite at all.
+- [ ] `src/agent/tracing.py` — `@traceable` wrappers that are **no-op passthroughs when
+      `LANGSMITH_TRACING` is falsy** (F12). Lands here so B only decorates and never edits
+      a shared file. Ships disabled; dev-only.
 - [ ] `src/prompts.py` — **F1.** `SYNTH_SYSTEM` and `SYNTH_USER` verbatim from
       `FINETUNE_PLAN.md` §4.1, plus the sentiment-path prompt. Imported by
       `src/agent/synth.py` (B) and `training/prepare_data.py` (D). **Neither may edit it.**
@@ -116,12 +172,37 @@ would otherwise both write.
       Imported by C and D.
 - [ ] `tests/conftest.py` — shared fixture root, `asyncio_mode=auto`.
 
-**Plan corrections**
+**Plan corrections — done 2026-07-31, listed for audit**
 
-- [ ] Fix `src/PLAN.md` → `src/Agent_Harness_Implementation_Plan.md` throughout
+- [x] `src/PLAN.md` → `src/Agent_Harness_Implementation_Plan.md` throughout
       `FINETUNE_PLAN.md` (F3)
-- [ ] Harness §6: 2,000 → 1,200 chars (F2)
-- [ ] Harness §9: 5/7/3 → 4/7/4 (F7)
+- [x] Harness §6: 2,000 → 1,200 chars (F2)
+- [x] Harness §9: 5/7/3 → 4/7/4 (F7) — re-measured from `public_questions.jsonl`:
+      4 easy / 7 medium / 4 hard, 150 points total
+- [x] Harness §11: `WARMUP_STEPS=50` → `warmup_ratio=0.10`, per `FINETUNE_PLAN.md` §8.1 (F13)
+- [x] Sequential merges replace the octopus merge in harness §12.5 and §8 here (F14)
+
+**The 2-minute probe that unblocks session B (F15)**
+
+- [ ] Establish whether a `role: "tool"` message is accepted. The brain's XML arrives in
+      `message.content`, so there is no `tool_calls` entry for a `tool_call_id` to reference.
+      If LiteLLM rejects it, B's loop must append results as a `user` message shaped like
+      `<tool_response>…</tool_response>` instead.
+
+      ```bash
+      curl -s "$LITELLM_BASE_URL/chat/completions" -H "Authorization: Bearer $LITELLM_KEY" \
+        -H 'Content-Type: application/json' -d '{
+        "model":"agent-brain","max_tokens":64,
+        "chat_template_kwargs":{"enable_thinking":false},
+        "messages":[
+          {"role":"user","content":"count RBA changes"},
+          {"role":"assistant","content":"<tool_call>{\"name\":\"rba\",\"arguments\":{\"metric\":\"count_changes\"}}</tool_call>"},
+          {"role":"tool","content":"41 of 175 records changed the rate."}
+        ]}' | head -40
+      ```
+
+      Record the outcome in this file's §9 F15 row before B forks. `budget.py` owns a single
+      `tool_result_message()` factory either way, so the decision lives in one place.
 
 **The one measurement that must happen before D generates data**
 
@@ -135,12 +216,19 @@ would otherwise both write.
 Then:
 
 ```bash
-git add -A && git commit -m "Base: config, frozen prompts, contracts, component judge, plan fixes"
-git push team main
+git switch main
+git add -A && git commit -m "chore(repo): base commit — config, frozen prompts, contracts, component judge"
+git push origin main          # origin IS our repo now; there is no `team` remote
 ```
 
-**One ownership call, made here:** `src/tools/registry.py` is listed in harness §10 step 8
-as "owners A+B." It belongs to **A alone**. B imports it and never edits it.
+**Two ownership calls, made here:**
+
+1. `src/tools/registry.py` is listed in harness §10 step 8 as "owners A+B." It belongs to
+   **A alone**. B imports it and never edits it.
+2. **Judge calibration (F6/Q1) belongs to Phase 0, not to session D.**
+   `FINETUNE_DATA_SOURCES.md` §6 schedules it as D's parallel work; that is wrong, because
+   its result decides the answer style for every record D generates. It runs here, before
+   forking, and D reads `training/eval/judge_calibration.md` as an input it never writes.
 
 ---
 
@@ -148,12 +236,18 @@ as "owners A+B." It belongs to **A alone**. B imports it and never edits it.
 
 Four sessions, four branches, file-disjoint by construction.
 
+The four branches already exist off `main`. Each session claims one and works in its own
+worktree — directory name matches the branch suffix, so `git worktree list` is readable:
+
 ```bash
-git worktree add .worktrees/tools    -b feat/tools
-git worktree add .worktrees/agent    -b feat/agent
-git worktree add .worktrees/eval     -b feat/serving-eval
-git worktree add .worktrees/training -b feat/training
+git worktree add .worktrees/tools        feat/tools
+git worktree add .worktrees/agent        feat/agent
+git worktree add .worktrees/serving-eval feat/serving-eval
+git worktree add .worktrees/training     feat/training
 ```
+
+(`.worktrees/` is git-ignored. Drop the `-b` — the branches are already created; `-b` would
+fail.)
 
 If the session has a native worktree tool (`EnterWorktree`), use that instead and let the
 harness own placement and cleanup. **Never run two sessions in the same working tree** —
@@ -181,10 +275,12 @@ self-contained — a session with no prior context can execute from the prompt a
 
 ```
 You are one of four parallel sessions building a hackathon submission. Repo root:
-/home/cognitivo_g01/Hackathon_3107/AI_Industry_Training_Hackathon
+/home/cognitivo_g01/Hackathon_3107/hackathon_westpac
 
 Read first, in this order:
-  1. src/SESSION_KICKOFF.md §2 (cross-plan defects) and §5 (your ownership boundary)
+  1. src/SESSION_KICKOFF.md — it is the SOURCE OF TRUTH. §2 (cross-plan defects and repo
+     facts), §5 (your ownership boundary), §9 (resolved review findings). Where it and any
+     other src/*.md disagree, it wins; do not "fix" the other doc.
   2. the plan sections named in your brief below
 
 Ground rules, all sessions:
@@ -199,8 +295,15 @@ Ground rules, all sessions:
 - src/config.py and src/prompts.py are FROZEN. Import from them; never edit them.
   src/prompts.py holds the synthesis prompt that the fine-tuned adapter is trained
   against. Changing it silently invalidates the adapter.
-- Never push to `origin` — that is the organizer's repo. Push to `team`.
+- Push to `origin <your-branch>`. `origin` is OUR repo (hokydna/hackathon_westpac). Ignore
+  any instruction in the older docs about a `team` remote or not pushing to origin — the
+  repo moved and those lines are dead.
+- Never commit `data set/` (785 MB, already ignored), model weights, or a .env. Never
+  `git add -f`.
 - No credentials, endpoints, or keys in source. Read from env.
+- Conventional Commits, and name the plan section in the body: `Refs: kickoff §4` or
+  `Refs: harness §10 step 3`. Judges score repository structure; an unstructured history
+  reads as one dump.
 - Report status when you hit your definition of done, or when you are blocked for more
   than 15 minutes.
 ```
@@ -246,6 +349,19 @@ a different field set silently produces counts that will not match the reference
 
 Add a `coverage` tool that compares date ranges across datasets. MHQ090's correct answer
 is a justified refusal — RBA covers the 2022-23 hikes but AFR and ASX both end in 2021.
+
+Two measurements only you can make, both go in your status report:
+- Peak RSS after the AFR index build. Each node is a single GB10 with unified memory SHARED
+  with vLLM, and vllm-brain lives on node0 next to you. An unmeasured multi-GB index next to
+  a preallocated KV cache OOMs the brain and takes sessions B and C down with it. If it is
+  tight, hold offsets into an mmap'd corpus instead of the text.
+- Index build wall time. If it is anywhere near the measured ~32s, persist it to disk
+  (pickle keyed on a hash of corpus mtimes+sizes) so a restart costs seconds. /health is a
+  hard 40% gate and a restart currently means ~32s of failing /query calls.
+
+Run unit tests against tests/fixtures/dataset/ (in the base commit), not the real 785 MB
+corpus — your worktree does not contain `data set/`, it is untracked. Only tests marked
+needs_dataset use the real thing via DATASET_DIR.
 
 Done when: MHQ001, MHQ040 and MHQ061 reproduce exactly, all tools are unit-tested against
 reference values, and ALL_TOOLS + BRAIN_SCHEMAS export cleanly.
@@ -347,8 +463,13 @@ Build in this order:
      (session D). Without this a 0 tells nobody which workstream to fix.
 
   4. Hardening. Three concurrent /query requests with distinct questions, asserting no
-     crossed answers. Latency measured against the 60s threshold. Secret scan broader than
-     `nvapi-` — generic password/credential patterns too. Confirm `data set/` is untracked.
+     crossed answers. Latency measured against the 60s threshold, and specifically MEASURE
+     THINKING-OFF BRAIN LATENCY UNDER 3-WAY CONCURRENCY — the harness plan §6 has 20.7s for
+     thinking-ON under concurrency but no thinking-off figure, and 3 concurrent requests is
+     the graded condition. That number decides whether the 60s threshold is actually safe.
+     Assert the budget invariant too: LOOP_DEADLINE_S + SYNTH_TIMEOUT_S + SAFETY_MARGIN_S
+     == PENALTY_THRESHOLD_S (60). Secret scan broader than `nvapi-` — generic
+     password/credential patterns too. Confirm `data set/` is still untracked.
      submission.json with the pinned 40-char commit SHA, the machine's real IP (not
      localhost), and agent.timeout_seconds=300.
 
@@ -366,9 +487,8 @@ three concurrent requests do not cross state.
 ```
 <shared preamble>
 
-You own training/ entirely and you execute src/FINETUNE_PLAN.md end to end. Note: that
-file refers to its companion as `src/PLAN.md` — the real filename is
-src/Agent_Harness_Implementation_Plan.md.
+You own training/ entirely and you execute src/FINETUNE_PLAN.md end to end. That file is
+subordinate to this one — where they disagree, this file wins (see §9).
 
 Read: src/FINETUNE_PLAN.md in full (it is your plan, not a reference), plus
 Cognitivo_Labs/Cognitivo_Labs/docs/superpowers/reviews/2026-07-31-evaluation-strategy-review.md
@@ -387,10 +507,15 @@ category and drags architecture credit down with it.
 
 Ordering that is not negotiable:
 
-  1. FIRST, before anything touches node1: bank the base-model evaluation against the live
-     base endpoint at http://10.0.1.11:8001/v1. That GPU becomes yours the moment training
-     starts and the control arm disappears with it. Half of a 30%-weighted deliverable is
-     sitting there, available today, blocked on nothing.
+  1. Bank the base-model evaluation against the live base endpoint at
+     http://10.0.1.11:8001/v1 BEFORE training takes that GPU — the control arm disappears
+     with it, and it is half of a 30%-weighted deliverable. It scores the heldout split, so
+     it runs immediately after generation (FINETUNE_PLAN §8, ~T+0:50), not before it. Nothing
+     may touch node1 until it is banked. Grab the §2.6 /tokenize sequence-budget measurement
+     in the same window — same endpoint, same deadline.
+     Read training/eval/judge_calibration.md from the base commit FIRST, before you design
+     the data mix. If it is missing, stop and say so: generating against a guessed answer
+     style means regenerating everything.
   2. In parallel, chase blocker B1: `ssh 10.0.1.11` currently returns
      "Permission denied (publickey,password)". Verified still broken today. Everything
      downstream queues behind it. If unresolved by T+0:20, take the FINETUNE_PLAN §9
@@ -467,13 +592,17 @@ running agent.
 
 ## 8. Integration
 
-Merge order is free — the branches are file-disjoint by construction.
+Merge order is free — the branches are file-disjoint by construction — but merge them **one
+at a time** (F14). An octopus merge aborts entirely on any conflict and destroys the signal
+about *which* boundary leaked, which is the only diagnostic value a conflict has here.
 
 ```bash
-git checkout main
-git merge feat/tools feat/agent feat/serving-eval feat/training   # expect zero conflicts
-pytest                                                            # full suite
-python -m src.eval.run_offline_eval                               # the acceptance gate
+git switch main
+for b in feat/tools feat/agent feat/serving-eval feat/training; do
+  git merge --no-ff "$b" || { echo "BOUNDARY LEAKED: $b"; break; }
+done
+pytest                                   # full suite
+python -m src.eval.run_offline_eval      # the acceptance gate
 ```
 
 Then the two things that need all four tracks landed, and therefore belong to the
@@ -496,3 +625,31 @@ whole category:
       `model.model_name = "nemotron-8b-finance"`, `model.endpoint` on node1 (not localhost)
 - [ ] `README.md`, `src/`, `training/`, `logs/` populated per `submission-guide.md`
 - [ ] Repo is **public** and clonable without credentials
+
+---
+
+## 9. Resolved review findings
+
+`Agent_Harness_Plan_Review.md` raised items that the earlier version of this file neither
+adopted nor rejected. Each now has a decision. **F9–F16 extend the F1–F8 set in §2.**
+
+| # | Finding | Review ref | Decision |
+|---|---|---|---|
+| **F9** | `MAX_TURNS = 3` vs the review's recommended 5. The handout's best team ran avg 4.65 steps and says hard questions need 3–5 tool calls. | C3 | **Keep 3, because turns ≠ tool calls.** One brain turn can emit several `<tool_call>` blocks, so a 3-turn cap already permits 6+ calls and satisfies the handout. `LOOP_DEADLINE_S` (F10) is the real governor; the turn cap is a runaway backstop. **Document `steps` ≠ `MAX_TURNS` in the response contract** — they are different quantities and the review is right that the plan conflated them. |
+| **F10** | Deadline arithmetic crosses the scored boundary: a 45 s wall deadline plus a 15 s synthesis timeout is 60 s **before** FastAPI serialisation, landing on the wrong side of the −20% line. | C2 | **Adopted.** The deadline was bounding the wrong quantity. `LOOP_DEADLINE_S = 40` bounds when the *loop* stops, leaving synthesis its full budget inside the 60 s envelope. Constants and the invariant test are in §4. Measured end-to-end is ~6–10 s, so this costs nothing except in the pathological case — which is exactly where the penalty bites. |
+| **F11** | No dependency manifest anywhere, and no test fixtures, so the suite cannot run off this box. | A.2, D.3 | **Adopted into Phase 0** (§4). `requirements.txt` + `pyproject.toml` + a <1 MB `tests/fixtures/dataset/`. Reproducibility is a named 30% rubric item and a judge cloning the repo currently cannot run a single test. |
+| **F12** | LangSmith: nothing traces automatically under a hand-rolled loop; `config.py` has no `LANGSMITH_*` block. | E, G1, G2, E.5 | **Partially adopted.** The review's own banner supersedes its §E: the scored path must run with the network down (`Challenge_Brief` § Rules) and must not send hidden question text to a third party. So — **tracing ships OFF.** But `config.py` gets the `LANGSMITH_*` variables and `src/agent/tracing.py` lands in the base commit as no-op passthroughs, because both are frozen files and adding them later breaks the §4 rule. Dev-only observability, one env var to enable. |
+| **F13** | Harness §11 still quotes `WARMUP_STEPS=50`, which `FINETUNE_PLAN.md` §8.1 identifies as the most likely silent training failure. | — | **`warmup_ratio = 0.10`.** Corrected in the harness plan. A fixed 50-step warmup on a 60-step run means the LR never reaches target. |
+| **F14** | Octopus merge aborts wholesale and loses the per-branch signal. | V12 | **Adopted.** Sequential `--no-ff` merges, §8. |
+| **F15** | The `role: "tool"` message may be rejected, and it is on B's critical path. | C1 | **Adopted as a Phase 0 probe** (§4). Two minutes now versus a blocked session B at hour 4. Record the outcome in this row. **Result: _unrun — fill this in._** |
+| **F16** | Review §A/§B propose step notes, ADRs, `CHANGELOG.md`, pre-commit + gitleaks, and CI. | A.2, B.1, B.3, V5–V9 | **Mostly rejected on the clock, two exceptions.** `README.md` says `docs/` is not required, and a 12-hour build does not fund an ADR set. **Adopted:** (a) Conventional Commits naming the plan section, already in the §6.1 preamble — it is free and it is what "repository structure" credit reads; (b) `training/MODEL_SUMMARY.md` and `training/COMPARISON.md`, which are already D's deliverables and carry most of the 30% model-quality evidence. **Rejected:** `docs/steps/*`, `docs/DECISIONS/*`, `CHANGELOG.md`, pre-commit, CI. The secret scan survives as a §8 gate item rather than a hook. |
+
+### Two review items promoted into session prompts
+
+- **Peak RSS after the AFR index build** (C4) — session A measures and reports it. The index
+  sits in unified memory next to `vllm-brain`'s preallocated KV cache on node0; an unmeasured
+  multi-GB index OOMs the brain, not just the agent. Mitigation if tight: keep offsets into an
+  mmap'd corpus rather than the text.
+- **Thinking-off latency under 3-way concurrency** (C4) — session C measures it. §6 of the
+  harness plan has the figure for thinking-**on** (20.7 s) but not off, and 3 concurrent
+  requests is the graded condition.

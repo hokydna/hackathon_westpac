@@ -3,30 +3,38 @@
 This repository **is** the submission. Scoring pins a single commit SHA from `main`, and the
 repo must stay **public** — no private repos, no collaborator-only access.
 
-## Branches
+## Branches — one per stream of work
 
-| Branch | Rule |
-|---|---|
-| `main` | Always submission-ready. Every commit here should leave `submission.json` valid and the agent runnable. This is the only branch a submission SHA is ever taken from. |
-| `feat/<slug>` | New capability — agent endpoints, tools, retrieval, harness wiring. |
-| `fix/<slug>` | Bug fixes. |
-| `train/<slug>` | Fine-tuning runs, data prep, eval sweeps. |
-| `docs/<slug>` | Plans, reviews, handout notes. |
+`src/SESSION_KICKOFF.md` §5 is the authority on who owns what. Four streams, four branches,
+**file-disjoint by construction** — that disjointness is what lets four sessions run at once
+without merge conflicts, so the ownership boundary matters more than the branch name.
 
-Branch off `main`, keep it short-lived, merge back via PR, delete after merge.
+| Branch | Stream | Owns | Never touches |
+|---|---|---|---|
+| `main` | — | Always submission-ready. The pinned submission SHA only ever comes from here. | — |
+| `feat/tools` | **A** — tools | `src/tools/*` (incl. `registry.py`), `tests/test_{rba,asx,afr}.py` | `src/agent/*`, `src/app.py` |
+| `feat/agent` | **B** — agent runtime | `src/agent/*` (not `tracing.py`), `tests/test_{parser,guard,loop}.py` | `src/tools/*`, `src/app.py` |
+| `feat/serving-eval` | **C** — serving & eval | `src/app.py`, `src/eval/*` (not `component_judge.py`), `tests/test_app.py` | `src/agent/*`, `src/tools/*` |
+| `feat/training` | **D** — fine-tuning | `training/*` entirely | everything under `src/` |
+
+**Frozen files — every stream imports, none edits:** `src/config.py`, `src/prompts.py`,
+`src/contracts.py`, `src/agent/tracing.py`, `src/eval/component_judge.py`,
+`tests/conftest.py`. They land in the base commit on `main` before anyone forks. Changing one
+mid-flight silently invalidates another stream's work — `prompts.py` in particular is what the
+LoRA adapter is trained against.
+
+Each stream works in its own worktree (`.worktrees/` is git-ignored). The branches already
+exist, so no `-b`:
 
 ```bash
-git switch main && git pull
-git switch -c feat/query-endpoint
-# ... work ...
-git push -u origin feat/query-endpoint   # then open a PR
+git worktree add .worktrees/tools feat/tools
 ```
 
-Long-running parallel work goes in a worktree (`.worktrees/` is ignored):
+**Never run two sessions in the same working tree** — they fight over the git index and
+failures become unattributable.
 
-```bash
-git worktree add .worktrees/train-lora train/nemotron-lora
-```
+Need a change in a file you don't own? Append it to `HANDOFF-<your-letter>.md` at the repo
+root and keep going. Never "just quickly fix" another stream's file.
 
 ## Commits
 
@@ -43,11 +51,26 @@ Scopes used here: `agent`, `retrieval`, `harness`, `training`, `package`, `submi
 
 `git commit` opens `.gitmessage` as a reminder — it is wired up via `commit.template`.
 
-## Pull requests
+## Integration
 
-- One logical change per PR; rebase on `main` rather than merging `main` in.
-- Squash-merge to keep `main` linear and easy to pin.
-- PR description states what changed and how it was verified (harness run, eval numbers, curl output).
+Merge order is free — the branches are file-disjoint — but merge **one at a time**, never as an
+octopus. An octopus merge aborts wholesale on any conflict and destroys the only diagnostic a
+conflict carries here: *which* boundary leaked.
+
+```bash
+git switch main
+for b in feat/tools feat/agent feat/serving-eval feat/training; do
+  git merge --no-ff "$b" || { echo "BOUNDARY LEAKED: $b"; break; }
+done
+pytest
+python -m src.eval.run_offline_eval      # the acceptance gate
+```
+
+**A merge conflict means the ownership boundary leaked. Fix the boundary — do not
+hand-resolve and move on.**
+
+PRs are optional on this clock; if you open one, say what changed and how it was verified
+(pytest output, eval numbers, curl output), and keep the plan refs in the body.
 
 ## What must never be committed
 
@@ -68,3 +91,7 @@ git rev-parse HEAD              # -> commit_sha in submission.json
 Update `submission.json` (`team_id`, `team_name`, `github_url`, `commit_sha`, `agent`, `model`),
 commit that, then take the **new** SHA — the pinned SHA is the one that contains the final
 `submission.json`, so it is always the last commit on `main`.
+
+The full pre-submission gate — each item independently capable of zeroing a whole scoring
+category — is `src/SESSION_KICKOFF.md` §8. Two that get forgotten: the repo must be **public**,
+and `GET /health` must answer 200 **from another machine** using the IP in `submission.json`.
