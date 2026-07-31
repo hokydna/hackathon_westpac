@@ -76,25 +76,109 @@ def test_synth_prompt_carries_the_single_sentence_clause():
     assert "Do not hedge" in prompts.SYNTH_SYSTEM
 
 
-def test_synth_user_has_both_placeholders():
-    filled = prompts.SYNTH_USER.format(question="q", tool_results="r")
-    assert "q" in filled and "r" in filled
+def test_synthesis_renderer_produces_the_trained_message_shape():
+    """Session B must call this, not hand-roll a message list.
+
+    3,773 training records were generated through render_synthesis_messages.
+    Any divergence in the rendered shape is the "adapter degrades to noise"
+    failure mode.
+    """
+    msgs = prompts.render_synthesis_messages(
+        question="How volatile was CBA.AX in 2017?",
+        requested_components=["volatility_pct_annualised"],
+        verified_evidence={"volatility_pct_annualised": 12.34},
+        limitations=[],
+    )
+    assert [m["role"] for m in msgs] == ["system", "user"]
+    assert msgs[0]["content"] == prompts.SYNTH_SYSTEM
+    user = msgs[1]["content"]
+    for block in ("Question:", "Requested components:", "Verified evidence:", "Limitations:"):
+        assert block in user
+    assert "CBA.AX" in user and "12.34" in user
 
 
 def test_sentiment_prompt_forbids_numeric_forecasts():
     """Setup_Instructions.md L95: "Do not force the model to emit a made-up
     numeric return or price forecast." """
     low = prompts.SENTIMENT_SYSTEM.lower()
-    assert "never forecast a numeric value" in low
-    assert "three sentences" in low
+    assert "never give a numeric forecast" in low
+    assert "price target" in low and "percentage move" in low
+    # Role 2 returns a classification, not an answer.
+    assert "direction only" in low
 
 
-def test_sentiment_user_has_all_four_placeholders():
-    filled = prompts.SENTIMENT_USER.format(
-        headline="h", publication_date="20150102", article_text="t", rba_rate="2.25"
+def test_sentiment_renderer_produces_the_trained_message_shape():
+    msgs = prompts.render_sentiment_messages(
+        headline="Banks rally as RBA holds",
+        publication_date="20150102",
+        excerpt="Shares in the major banks rose...",
+        cash_rate="2.50",
     )
-    for token in ("h", "20150102", "t", "2.25"):
-        assert token in filled
+    assert [m["role"] for m in msgs] == ["system", "user"]
+    assert msgs[0]["content"] == prompts.SENTIMENT_SYSTEM
+    user = msgs[1]["content"]
+    for token in ("Banks rally as RBA holds", "20150102", "2.50"):
+        assert token in user
+
+
+def test_caps_agree_across_config_and_prompts():
+    """Two modules each define a cap. They must never drift.
+
+    prompts.EVIDENCE_CHAR_CAP is what 3,773 training records were truncated to;
+    config.TOOL_RESULT_CHAR_CAP is what the harness clamps at inference. If these
+    diverge, the adapter is served a context shape it never saw (kickoff F2).
+    """
+    assert prompts.EVIDENCE_CHAR_CAP == config.TOOL_RESULT_CHAR_CAP == 1200
+    assert prompts.SENTIMENT_CHAR_CAP == config.SENTIMENT_CHAR_CAP == 200
+
+
+def test_evidence_truncation_announces_itself_and_never_silently_drops():
+    """A silently truncated evidence block trains the model to invent the rest."""
+    big = {"k": "x" * 5000}
+    out = prompts.format_evidence(big, char_cap=prompts.EVIDENCE_CHAR_CAP)
+    assert len(out) <= prompts.EVIDENCE_CHAR_CAP
+    assert "[evidence truncated]" in out
+
+
+def test_deterministic_fallback_never_fabricates_a_missing_component():
+    """The no-model-in-the-loop safety net. A requested component with no
+    evidence must become an explicit 'could not be determined', never a guess."""
+    out = prompts.deterministic_fallback(
+        requested_components=["volatility_pct_annualised", "peak_date"],
+        verified_evidence={"volatility_pct_annualised": 12.34},
+    )
+    assert "12.34" in out
+    assert "could not be determined" in out
+    assert "peak date" in out
+
+
+# --------------------------------------------------------------------------
+# The drift pin. This is the single most valuable test in the base commit.
+#
+# 3,773 training records were generated against these exact bytes. If anyone
+# edits a prompt string after data generation, the adapter is trained on one
+# format and served another -- FINETUNE_PLAN §4.1's "the adapter degrades to
+# noise". A hash makes that unmissable instead of silent.
+#
+# If this test fails, you have TWO valid options and editing the hash is only
+# one of them: either revert the prompt change, or change it deliberately AND
+# regenerate every training record, then update the hash in the same commit.
+# --------------------------------------------------------------------------
+
+SYNTH_SYSTEM_SHA256 = "749a038c4490ce6ef92b7551f31b0e45c3deec7a0cdff0cf731e4b7073d83c0f"
+SENTIMENT_SYSTEM_SHA256 = "b24e4e7d078e91b629399504c5cf6eecd74b46aae100e7af86435aba923f44c7"
+
+
+def test_frozen_prompts_have_not_drifted():
+    import hashlib
+
+    assert (
+        hashlib.sha256(prompts.SYNTH_SYSTEM.encode()).hexdigest() == SYNTH_SYSTEM_SHA256
+    ), "SYNTH_SYSTEM changed -- regenerate training data or revert"
+    assert (
+        hashlib.sha256(prompts.SENTIMENT_SYSTEM.encode()).hexdigest()
+        == SENTIMENT_SYSTEM_SHA256
+    ), "SENTIMENT_SYSTEM changed -- regenerate training data or revert"
 
 
 # --------------------------------------------------------------------------
