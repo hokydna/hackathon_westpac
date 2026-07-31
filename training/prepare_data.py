@@ -39,19 +39,61 @@ import random
 from datetime import date, timedelta
 from typing import Callable, Iterator
 
+import hashlib
+import sys
+from pathlib import Path
+
+# The shared contract lives at the repo root, not under training/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from ftdata import fmt
 from ftdata import metrics as M
 from ftdata import paths
 from ftdata.corpora import ASX_NAMES, TABCORP, TICKER_TO_NAME
 from ftdata.example import Example, build
 from ftdata.gate import assert_gate
-from ftdata.prompts import (
+
+# ======================================================================================
+# THE FROZEN CONTRACT — imported, never restated.
+#
+# src/prompts.py is the base-commit authority (SESSION_KICKOFF §4, F1) and names
+# training/prepare_data.py as the consumer that trains against BOTH prompt pairs:
+# Role 1 synthesis (src/agent/synth.py) and Role 2 domain_sentiment (src/tools/registry.py).
+#
+# The model is trained on these exact bytes. Serving it a different prompt is the single
+# failure mode that turns the whole run into noise, so the renderers are shared rather than
+# reimplemented — and CONTRACT_HASH below pins them, so a later edit to the contract makes
+# the stale dataset fail loudly in train_qlora.py instead of quietly degrading the adapter.
+# ======================================================================================
+from src.prompts import (
     SENTIMENT_CHAR_CAP,
+    SENTIMENT_SYSTEM,
+    SYNTH_SYSTEM,
     render_sentiment_messages,
     render_synthesis_messages,
 )
 
 SEED = 42
+
+
+def contract_hash() -> str:
+    """SHA-256 over the exact prompt bytes the dataset is generated against."""
+    h = hashlib.sha256()
+    for part in (SYNTH_SYSTEM, SENTIMENT_SYSTEM, str(SENTIMENT_CHAR_CAP)):
+        h.update(part.encode("utf-8"))
+        h.update(b"\x00")
+    # Renderer shape matters as much as the strings, so fold in a rendered sample.
+    h.update(
+        json.dumps(
+            render_synthesis_messages("q", ["c"], {"k": 1}, []), sort_keys=True
+        ).encode("utf-8")
+    )
+    h.update(
+        json.dumps(
+            render_sentiment_messages("h", "2020-01-01", "x", "1.00%"), sort_keys=True
+        ).encode("utf-8")
+    )
+    return h.hexdigest()
 
 # Evidence serialisation drift insurance (§6.3 rule 3). The runtime emits "json"; the
 # other two styles appear in a minority of rows so the adapter does not bind to one
@@ -1588,6 +1630,7 @@ def main() -> None:
         print(f"  {fp.relative_to(paths.REPO_ROOT)}: {len(rows)} rows")
 
     stats = {
+        "contract_hash": contract_hash(),
         "seed": args.seed,
         "target": args.target,
         "total": len(examples),
