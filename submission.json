@@ -1,17 +1,17 @@
 {
   "schema_version": "1.0",
-  "team_id": "westpacman",
+  "team_id": "team-17",
   "team_name": "Westpac",
   "github_url": "https://github.com/hokydna/hackathon_westpac",
   "commit_sha": "e3548a56e43b0514c6b86b8881af739a6e615a4b",
   "agent": {
-    "endpoint": "http://10.3.1.143:5000",
+    "endpoint": "http://10.0.1.10:5000",
     "health_path": "/health",
     "query_path": "/query",
     "timeout_seconds": 300
   },
   "model": {
-    "endpoint": "http://10.3.1.143:8001/v1",
+    "endpoint": "http://10.0.1.10:8001/v1",
     "model_name": "nemotron-8b-finance-lora"
   }
 }
