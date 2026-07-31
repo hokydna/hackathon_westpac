@@ -72,9 +72,10 @@ Re-probed this session; every one of these still holds:
 - **B1 — `ssh 10.0.1.11` → `Permission denied (publickey,password)`.** The entire
   fine-tuning critical path queues behind it. Not a coding task; needs a human chasing
   organizers from minute zero.
-- **`domain-ft` alias broken** — LiteLLM routes it to `nemotron-8b-finance`, node1
-  advertises `Llama-3.1-Nemotron-Nano-8B-v1`. Free fix: serve our adapter with
-  `--served-model-name nemotron-8b-finance`.
+- ~~**`domain-ft` alias broken**~~ — **RESOLVED 2026-07-31.** The alias now answers from a
+  separate vLLM instance (fingerprint `5a3f83cd` vs the brain's `6bc76779`), so
+  `DOMAIN_PREDICT_MODE=llm` works today against base Nemotron. When serving the adapter,
+  keep `--served-model-name nemotron-8b-finance` so it stays working. See §11.
 - **Base Nemotron is live on `10.0.1.11:8001` right now.** It is the control arm for 30%
   of the score and it disappears the moment training starts. Collect the base arm first.
 - **No fine-tuning scripts on this box.** `~/Cognitivo_Training` has one `team.env`;
