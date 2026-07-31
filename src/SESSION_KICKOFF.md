@@ -22,6 +22,7 @@
 > Do not fix a contradiction by editing one of those four. Fix it here, then propagate.
 
 Read this if you are about to start a session, or if you are the one who owns Phase 0.
+**For current build state and what to pick up next, jump to §11.**
 
 ---
 
@@ -772,3 +773,93 @@ Both `src/tools/registry.py` (A) and `src/agent/synth.py` (B) now need to talk t
       pair, same freeze, same reason: session D trains against them.
 
 Sessions A and C each carry one measurement promoted out of the review — see the end of §9.
+
+---
+
+## 11. Build status — updated 2026-07-31
+
+`main` at `f715a4e`. **139 tests green**, runnable with no corpus, no models and no
+network. Phase 0 and the whole agentic loop are done and merged.
+
+### Done
+
+| Stream | State |
+|---|---|
+| **Phase 0** | Complete. Six frozen files, test scaffolding, 328K fixture corpus, both probes run |
+| **B — agent** | **Complete and merged.** `parser` `brain` `guard` `budget` `synth` `loop`, 97 tests. Verified end-to-end against the live Qwen |
+| **D — training** | Active on `feat/training`. 3,773 records generated against the shared `src/prompts.py` |
+| **A — tools** | **Not started.** `src/tools/` holds only `__init__.py` |
+| **C — serving/eval** | **Not started.** No `app.py`, no `run_offline_eval.py` |
+
+### The measurement that should drive the next decisions
+
+The full pipeline ran against live Qwen **and** live Nemotron on MHQ001. The tool
+retrieved `41 / 175 / 20 / 21` — perfectly correct. Scored with the frozen
+`component_judge`:
+
+| Answer | Score |
+|---|---|
+| Base Nemotron, `DOMAIN_PREDICT_MODE=llm` | **0 / 10** |
+| `reference_answer` | 10 / 10 |
+
+**It had all four numbers right and still scored zero**, because it emitted them as
+a bullet list and then hedged (*"it is not possible to determine the exact
+number"*) while holding the number. That is §5.3's predicted base failure mode —
+thinking out loud and hedging — and it is the compound-component gate in F5.
+
+Three things follow. **The harness is not the bottleneck.** The 30% base-vs-FT
+comparison now has a real base arm on the hardest question class. And session D's
+adapter is what converts a correct retrieval into a scoring answer, which makes it
+the highest-leverage remaining work after tools exist at all.
+
+### Corrections to earlier state — do not re-derive these
+
+- **`domain-ft` is NOT broken.** It answers from a separate vLLM instance
+  (fingerprint `5a3f83cd` vs the brain's `6bc76779`). §2's blocker line and
+  `FINETUNE_PLAN.md` §2.2 are **stale**. `DOMAIN_PREDICT_MODE=llm` works today.
+- **`DATASET_DIR` is fixed.** It resolved from `__file__`, so inside a worktree it
+  pointed at the worktree — where `data set/` does not exist, because it is
+  untracked. Every session works in a worktree, so it was broken for all of them.
+  `config.py` now follows the worktree gitfile back to the main checkout. Leave
+  `DATASET_DIR` unset.
+- **`DOMAIN_BASE_URL` exists** for §9's fallback: point Nemotron at a vLLM
+  endpoint directly while the brain keeps using LiteLLM. Defaults to LiteLLM.
+- **`role:"tool"` is accepted** (F15) and **judge calibration says
+  `NATURAL_SYNTHESIS`** (F6). Both settled; see those rows.
+- **ASX files are named by COMPANY, not ticker.** `Tabcorp-ASX-2015-2021.jsonl`
+  holds `TAH.AX`, and 7 of 18 stems do not match their ticker prefix.
+  `FINETUNE_PLAN.md` §2.4's `<TICKER>-` pattern is **wrong**. Read the `ticker`
+  field; deriving it from the filename mis-keys `exclude_tickers` on the one
+  ticker excluded in 5 of the 15 public questions.
+
+### Next, in order of leverage
+
+1. **A — tools.** Nothing else can raise the score. `src/tools/` is empty, so
+   every question currently retrieves nothing. Start with `corpora.py` + `rba.py`
+   against the MHQ001 fixture, then the AFR index, then ASX.
+2. **A — `domain_sentiment`** (§10 Role 2). 30 of 150 public points, still unbuilt.
+3. **C — `app.py`.** `/health` is a hard gate: fail it and the entire 40% zeroes.
+4. **C — offline eval.** Two passes, penalised score, failure attribution.
+5. **Integration** — first real `POST /query`, then `submission.json`.
+
+### Open decision that spans A, B and D
+
+**The evidence-shape contract.** The adapter is trained on *structured* evidence —
+`Verified evidence: {"volatility_pct_annualised": 14.46, ...}` plus a
+`requested_components` list — but harness §3 says every tool returns `str`. This is
+`FINETUNE_DATA_SOURCES.md` Q3: train on one `tool_results` format, serve another,
+and the adapter degrades.
+
+`synth.py` currently reads a structured payload off `tool.last_data` when present
+and degrades to `{tool_name: result_string}` when absent, flagging the degraded
+case in `Synthesis.error`. **The string form is a shape the adapter never saw**, so
+it is a correctness risk rather than a neutral fallback.
+
+Pick one before A finishes its tools:
+
+- **A's tools expose `last_data`** (a dict of computed values) alongside their
+  string return. Cheapest, preserves what the adapter was trained on, and the loop
+  already carries it. **Recommended.**
+- **D re-serialises** its 3,773 records against the harness's real string format.
+  Truer to Q3's advice, but costs a regeneration and loses the typed evidence that
+  makes the assistant targets precise.
