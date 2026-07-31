@@ -1,0 +1,27 @@
+[project]
+name = "westpac-market-signal-agent"
+version = "0.1.0"
+description = "Evidence-grounded market signal agent over RBA, ASX and AFR data"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+# langchain-basics pattern: async tests need no explicit decorator.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+# Quiet, but never hide a failure.
+addopts = "-q --strict-markers"
+
+# `pytest -m "unit or integration or contract"` is the every-commit gate: it
+# runs with no corpus, no models and no network, so it works in a worktree and
+# in a judge's fresh clone. Everything else is opt-in.
+markers = [
+    "unit: pure logic, tiny fixtures, no network, no corpus (<5s total)",
+    "integration: several modules together, fixtures only, no live models (<30s)",
+    "contract: response validates against validate.json / answer_template.json",
+    "regression: golden answers for the 15 public questions (needs_dataset)",
+    "smoke: hits a live service, runnable from another machine",
+    "e2e: real brain + real tools + real synthesis; skips when unreachable",
+    "perf: concurrency and latency assertions against the 60s threshold",
+    "needs_dataset: requires the untracked full 785 MB `data set/`",
+]
