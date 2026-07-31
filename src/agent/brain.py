@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .. import config
+from .tracing import traceable
 
 # Generous relative to the measured 43 tokens for a tool call. Exists so a turn
 # that decides to write prose instead cannot spend the whole deadline.
@@ -62,6 +63,7 @@ def _http(payload: dict, timeout: float) -> dict:
         return json.loads(resp.read())
 
 
+@traceable(run_type="llm", name="brain.plan")
 def plan(
     messages: list[dict[str, Any]],
     *,

@@ -55,6 +55,7 @@ SYSTEM_PROMPT = (
 )
 
 
+@traceable(run_type="tool", name="tool.invoke")
 async def _invoke(tool: Any, args: Mapping[str, Any]) -> str:
     """Execute one tool. Prefers the async path, threads the sync one.
 
@@ -69,7 +70,17 @@ async def _invoke(tool: Any, args: Mapping[str, Any]) -> str:
     return str(await asyncio.to_thread(tool, **dict(args)))
 
 
-@traceable(run_type="chain", name="agent.answer")
+def _trace_inputs(inputs: dict) -> dict:
+    """Keep traces readable: the registry holds tool objects and `clock` is a
+    test seam. Neither belongs in a span, and serialising them buries the one
+    field that matters."""
+    return {
+        "question": inputs.get("question"),
+        "tools_offered": sorted((inputs.get("registry") or {}).keys()),
+    }
+
+
+@traceable(run_type="chain", name="agent.answer", process_inputs=_trace_inputs)
 async def answer(
     question: str,
     registry: Mapping[str, Any] | None = None,

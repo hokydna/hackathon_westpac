@@ -40,6 +40,7 @@ import json
 import re
 
 from ..contracts import ToolCall
+from .tracing import traceable
 
 # Non-greedy so consecutive calls don't merge. DOTALL because the real payload is
 # newline-separated.
@@ -73,6 +74,7 @@ def _decode(raw: str) -> object:
     return value
 
 
+@traceable(run_type="parser", name="parser.parse")
 def parse(content: str | None) -> list[ToolCall]:
     """Extract every tool call from one brain reply.
 

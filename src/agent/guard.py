@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from ..contracts import ToolCall
+from .tracing import traceable
 
 
 @dataclass
@@ -85,6 +86,7 @@ def _summarise(exc: Exception) -> str:
     return f"Invalid arguments — {type(exc).__name__}"
 
 
+@traceable(run_type="chain", name="guard.validate")
 def validate(
     calls: list[ToolCall],
     registry: Mapping[str, Any],
