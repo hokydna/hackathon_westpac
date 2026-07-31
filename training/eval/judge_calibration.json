@@ -1,0 +1,427 @@
+{
+  "generated_utc": "2026-07-31T02:14:07.152868+00:00",
+  "judge_model": "agent-brain",
+  "judge_calls": 108,
+  "verdict": "REFERENCE_SHAPE_PREFERRED",
+  "mean_points_weighted_recall": {
+    "control": 1.0,
+    "paraphrase": 0.8233333333333334,
+    "negative": 0.48221428571428576
+  },
+  "rows": [
+    {
+      "id": "MHQ001",
+      "difficulty": "easy",
+      "n_components": 1,
+      "reference_answer": "41 of the 175 decision records changed the rate: 20 increases and 21 decreases.",
+      "paraphrase": "Based on the dataset, 41 of the 175 decision records changed the rate: 20 increases and 21 decreases.",
+      "negative": "41 of the 222 decision records changed the rate: 20 increases and 21 decreases.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 1,
+          "n": 1,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 1,
+          "n": 1,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.0,
+          "passed": 0,
+          "n": 1,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ035",
+      "difficulty": "medium",
+      "n_components": 2,
+      "reference_answer": "Eight cuts occurred: 2 in 2011, 4 in 2012, and 2 in 2013. They totalled -2.25 percentage points, taking the target from 4.75% before the first cut to 2.50% at the end of 2013.",
+      "paraphrase": "Based on the dataset, and 2 in 2013. They totalled -2.25 percentage points, taking the target from 4.75% before the first cut to 2.50% at the end of 2013.; Eight cuts occurred: 2 in 2011, 4 in 2012",
+      "negative": "Eight cuts occurred: 2 in 2058, 4 in 2012, and 2 in 2013. They totalled -2.25 percentage points, taking the target from 4.75% before the first cut to 2.50% at the end of 2013.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 2,
+          "n": 2,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 0.5,
+          "passed": 1,
+          "n": 2,
+          "target_component_passed": false
+        },
+        "negative": {
+          "recall": 0.5,
+          "passed": 1,
+          "n": 2,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ040",
+      "difficulty": "easy",
+      "n_components": 1,
+      "reference_answer": "There are 18 ticker files, each containing 1,774 rows, covering 2 Jan 2015 through 30 Dec 2021.",
+      "paraphrase": "Based on the dataset, there are 18 ticker files, each containing 1,774 rows, covering 2 Jan 2015 through 30 Dec 2021.",
+      "negative": "There are 18 ticker files, each containing 1,821 rows, covering 2 Jan 2015 through 30 Dec 2021.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 1,
+          "n": 1,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 1,
+          "n": 1,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.0,
+          "passed": 0,
+          "n": 1,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ045",
+      "difficulty": "medium",
+      "n_components": 2,
+      "reference_answer": "BHP.AX was best at +22.17%; AMP.AX was worst at -50.04%.",
+      "paraphrase": "Based on the dataset, aMP.AX was worst at -50.04%.; BHP.AX was best at +22.17%",
+      "negative": "BHP.AX was best at +44.01%; AMP.AX was worst at -50.04%.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 2,
+          "n": 2,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 0.5,
+          "passed": 1,
+          "n": 2,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.5,
+          "passed": 1,
+          "n": 2,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ049",
+      "difficulty": "medium",
+      "n_components": 1,
+      "reference_answer": "AMP.AX has the highest average daily volume at 11,635,671.71 shares per trading day.",
+      "paraphrase": "Based on the dataset, aMP.AX has the highest average daily volume at 11,635,671.71 shares per trading day.",
+      "negative": "AMP.AX has the highest average daily volume at 11,682,671.71 shares per trading day.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 1,
+          "n": 1,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 0.0,
+          "passed": 0,
+          "n": 1,
+          "target_component_passed": false
+        },
+        "negative": {
+          "recall": 0.0,
+          "passed": 0,
+          "n": 1,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ055",
+      "difficulty": "hard",
+      "n_components": 3,
+      "reference_answer": "1) AMP.AX -82.45%, 20 Mar 2015 to 17 Dec 2021; 2) AGL.AX -76.24%, 10 Apr 2017 to 16 Nov 2021; 3) QAN.AX -71.08%, 19 Dec 2019 to 19 Mar 2020.",
+      "paraphrase": "Based on the dataset, 1) AMP.AX -82.45%, 20 Mar 2015 to 17 Dec 2021; 2) AGL.AX -76.24%, 10 Apr 2017 to 16 Nov 2021; 3) QAN.AX -71.08%, 19 Dec 2019 to 19 Mar 2020.",
+      "negative": "1) AMP.AX -155.53%, 20 Mar 2015 to 17 Dec 2021; 2) AGL.AX -76.24%, 10 Apr 2017 to 16 Nov 2021; 3) QAN.AX -71.08%, 19 Dec 2019 to 19 Mar 2020.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.667,
+          "passed": 2,
+          "n": 3,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ058",
+      "difficulty": "easy",
+      "n_components": 3,
+      "reference_answer": "The RBA cash-rate target in force was 0.10%. The article's sentiment is positive. The likely direction for ASX travel shares is upward.",
+      "paraphrase": "Based on the dataset, the RBA cash-rate target in force was 0.10%. The article's sentiment is positive. The likely direction for ASX travel shares is upward.",
+      "negative": "The RBA cash-rate target in force was 3.19%. The article's sentiment is positive. The likely direction for ASX travel shares is upward.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.8,
+          "passed": 2,
+          "n": 3,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ061",
+      "difficulty": "medium",
+      "n_components": 2,
+      "reference_answer": "It peaked in 2020 with 1,452 matching records. May 2020 is the peak month with 218.",
+      "paraphrase": "Based on the dataset, it peaked in 2020 with 1,452 matching records. May 2020 is the peak month with 218.",
+      "negative": "It peaked in 2067 with 1,452 matching records. May 2020 is the peak month with 218.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 2,
+          "n": 2,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 2,
+          "n": 2,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.5,
+          "passed": 1,
+          "n": 2,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ067",
+      "difficulty": "hard",
+      "n_components": 3,
+      "reference_answer": "The RBA cash-rate target in force was 0.10%. The article's sentiment is mixed with a negative bias. The likely broad-ASX impact is mixed-to-down, with rate-sensitive shares under pressure.",
+      "paraphrase": "Based on the dataset, with rate-sensitive shares under pressure.; The RBA cash-rate target in force was 0.10%. The article's sentiment is mixed with a negative bias. The likely broad-ASX impact is mixed-to-down",
+      "negative": "The RBA cash-rate target in force was 3.19%. The article's sentiment is mixed with a negative bias. The likely broad-ASX impact is mixed-to-down, with rate-sensitive shares under pressure.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 0.6,
+          "passed": 2,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.8,
+          "passed": 2,
+          "n": 3,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ072",
+      "difficulty": "medium",
+      "n_components": 3,
+      "reference_answer": "The RBA cut to 1.25%. From 5 to 12 Jun, the non-Tabcorp basket rose +2.88%; CBA +0.60%, NAB +1.39%, ANZ +0.89%, BHP +5.89%, and RIO +2.91%.",
+      "paraphrase": "Based on the dataset, the non-Tabcorp basket rose +2.88%; CBA +0.60%; NAB +1.39%; ANZ +0.89%; BHP +5.89%; and RIO +2.91%.; The RBA cut to 1.25%. From 5 to 12 Jun",
+      "negative": "The RBA cut to 5.31%. From 5 to 12 Jun, the non-Tabcorp basket rose +2.88%; CBA +0.60%, NAB +1.39%, ANZ +0.89%, BHP +5.89%, and RIO +2.91%.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.667,
+          "passed": 2,
+          "n": 3,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ074",
+      "difficulty": "hard",
+      "n_components": 4,
+      "reference_answer": "After 5 Jun the basket rose +2.88% by 12 Jun; after 3 Jul it rose +0.24% by 10 Jul; after 2 Oct it fell -2.17% by 9 Oct. The cuts took the target to 1.25%, 1.00%, and 0.75%, respectively.",
+      "paraphrase": "Based on the dataset, and 0.75%, respectively.; After 5 Jun the basket rose +2.88% by 12 Jun; after 3 Jul it rose +0.24% by 10 Jul; after 2 Oct it fell -2.17% by 9 Oct. The cuts took the target to 1.25%, 1.00%",
+      "negative": "After 5 Jun the basket rose +8.33% by 12 Jun; after 3 Jul it rose +0.24% by 10 Jul; after 2 Oct it fell -2.17% by 9 Oct. The cuts took the target to 1.25%, 1.00%, and 0.75%, respectively.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 4,
+          "n": 4,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 0.75,
+          "passed": 3,
+          "n": 4,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.75,
+          "passed": 3,
+          "n": 4,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ076",
+      "difficulty": "easy",
+      "n_components": 1,
+      "reference_answer": "There are 369 AFR records matching whole-word QBE in 2021, and QBE.AX had the best non-Tabcorp 2021 return at +35.57%.",
+      "paraphrase": "Based on the dataset, and QBE.AX had the best non-Tabcorp 2021 return at +35.57%.; There are 369 AFR records matching whole-word QBE in 2021",
+      "negative": "There are 416 AFR records matching whole-word QBE in 2021, and QBE.AX had the best non-Tabcorp 2021 return at +35.57%.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 1,
+          "n": 1,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 1,
+          "n": 1,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.0,
+          "passed": 0,
+          "n": 1,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ080",
+      "difficulty": "medium",
+      "n_components": 5,
+      "reference_answer": "The RBA cash-rate target in force was 0.10%. The article's sentiment is positive. The likely direction for ASX energy shares is upward. The non-Tabcorp basket rose 2.37% from 30 Nov to 7 Dec 2020. The observed five-session move confirmed the inferred upward direction.",
+      "paraphrase": "Based on the dataset, the RBA cash-rate target in force was 0.10%. The article's sentiment is positive. The likely direction for ASX energy shares is upward. The non-Tabcorp basket rose 2.37% from 30 Nov to 7 Dec 2020. The observed five-session move confirmed the inferred upward direction.",
+      "negative": "The RBA cash-rate target in force was 3.19%. The article's sentiment is positive. The likely direction for ASX energy shares is upward. The non-Tabcorp basket rose 2.37% from 30 Nov to 7 Dec 2020. The observed five-session move confirmed the inferred upward direction.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 5,
+          "n": 5,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 5,
+          "n": 5,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.9,
+          "passed": 4,
+          "n": 5,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ084",
+      "difficulty": "medium",
+      "n_components": 3,
+      "reference_answer": "The RBA cut three times for -0.75 percentage points and ended at 0.75%. AFR contains 3,181 records matching interest rates?|cash rate|rate cut|rate hike|\\\\bRBA\\\\b. The non-Tabcorp ASX average return was +20.11%.",
+      "paraphrase": "Based on the dataset, the RBA cut three times for -0.75 percentage points and ended at 0.75%. AFR contains 3,181 records matching interest rates?|cash rate|rate cut|rate hike|\\\\bRBA\\\\b. The non-Tabcorp ASX average return was +20.11%.",
+      "negative": "The RBA cut three times for -4.39 percentage points and ended at 0.75%. AFR contains 3,181 records matching interest rates?|cash rate|rate cut|rate hike|\\\\bRBA\\\\b. The non-Tabcorp ASX average return was +20.11%.",
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "negative": {
+          "recall": 0.667,
+          "passed": 2,
+          "n": 3,
+          "target_component_passed": false
+        }
+      }
+    },
+    {
+      "id": "MHQ090",
+      "difficulty": "hard",
+      "n_components": 3,
+      "reference_answer": "No. The RBA data covers the 13 hikes from May 2022 to Nov 2023, but both AFR and ASX datasets end in 2021. A three-dataset reaction analysis is therefore unsupported by the supplied evidence.",
+      "paraphrase": "Based on the dataset, no. The RBA data covers the 13 hikes from May 2022 to Nov 2023, but both AFR and ASX datasets end in 2021. A three-dataset reaction analysis is therefore unsupported by the supplied evidence.",
+      "negative": null,
+      "arms": {
+        "control": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        },
+        "paraphrase": {
+          "recall": 1.0,
+          "passed": 3,
+          "n": 3,
+          "target_component_passed": true
+        }
+      }
+    }
+  ]
+}

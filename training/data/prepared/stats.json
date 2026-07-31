@@ -1,0 +1,76 @@
+{
+  "seed": 42,
+  "target": 4000,
+  "total": 3773,
+  "counts_by_split_and_slice": {
+    "train": {
+      "asx_single": 581,
+      "cross": 643,
+      "afr_single": 383,
+      "rba_single": 479,
+      "sentiment": 384,
+      "robust": 257,
+      "insufficient": 285
+    },
+    "val": {
+      "asx_single": 66,
+      "rba_single": 58,
+      "cross": 83,
+      "afr_single": 47,
+      "sentiment": 58,
+      "insufficient": 36,
+      "robust": 42
+    },
+    "heldout": {
+      "insufficient": 35,
+      "cross": 91,
+      "asx_single": 73,
+      "rba_single": 63,
+      "sentiment": 38,
+      "afr_single": 50,
+      "robust": 21
+    }
+  },
+  "mix_requested": {
+    "rba_single": 0.15,
+    "asx_single": 0.18,
+    "afr_single": 0.12,
+    "cross": 0.25,
+    "sentiment": 0.12,
+    "insufficient": 0.1,
+    "robust": 0.08
+  },
+  "families": [
+    "afr_describe",
+    "afr_monthly",
+    "afr_pattern",
+    "afr_peak",
+    "afr_sentiment",
+    "afr_share",
+    "afr_term_count",
+    "asx_annual_return",
+    "asx_avg_volume",
+    "asx_avg_volume_single",
+    "asx_close_on",
+    "asx_correlation",
+    "asx_describe",
+    "asx_full_sample",
+    "asx_max_drawdown",
+    "asx_rank_annual",
+    "asx_volatility",
+    "coverage_refusal",
+    "cross_afr_asx",
+    "cross_basket_window",
+    "cross_rba_window",
+    "cross_triple",
+    "rba_change_counts",
+    "rba_cycle_summary",
+    "rba_describe",
+    "rba_extremes",
+    "rba_longest_hold",
+    "rba_lookup_rate",
+    "rba_year_summary",
+    "robust_over_supplied",
+    "robust_tool_error"
+  ]
+}
