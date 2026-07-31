@@ -24,6 +24,12 @@ pytest==8.3.4
 pytest-asyncio==0.25.2
 
 # --- dev-only observability, OFF in the scored run (kickoff F12) ---
-# Uncomment with LANGSMITH_TRACING=1 for local debugging only. The scored path
-# must run against approved local services with no third-party egress.
-# langsmith>=0.9.8,<1.0
+# Installing this changes nothing on its own: src/agent/tracing.py only imports
+# langsmith when LANGSMITH_TRACING is truthy, and that ships false. The scored
+# path still makes no third-party egress.
+#
+# Pinned to what is installed and verified against this harness (0.2.11): it
+# supports every @traceable kwarg the loop uses -- run_type, name,
+# process_inputs, langsmith_extra -- plus Client().flush(). The previous
+# commented `>=0.9.8` pin did not match the venv and would have re-resolved.
+langsmith>=0.2.11,<1.0

@@ -21,6 +21,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from _env import load_env  # noqa: E402
+
+load_env()
+
 from src import config  # noqa: E402
 
 OK, WARN, BAD = "  ok  ", " warn ", " FAIL "
@@ -77,9 +81,13 @@ def main() -> int:
     env_file = REPO_ROOT / ".env"
     print(f"{OK if env_file.is_file() else WARN} .env present: {env_file.is_file()}")
     print(
-        f"{WARN} src/config.py reads os.environ ONLY — it does not parse .env.\n"
-        f"        Export first:  set -a; . ./.env; set +a\n"
-        f"        (but NOT in a command whose output you share — that prints your keys)"
+        f"{OK} .env loaded in-process by scripts/_env.py — no exporting needed.\n"
+        f"        Do NOT use `set -a; . ./.env` in a command whose output you share:\n"
+        f"        it prints every value, which is how a key leaks."
+    )
+    print(
+        f"{OK} src/config.py itself reads os.environ ONLY, so the scored run's\n"
+        f"        environment stays explicit. The convenience lives at the entry point."
     )
 
     # ---------------- brain ----------------
@@ -157,21 +165,57 @@ def main() -> int:
         print(f"{OK} LANGSMITH_TRACING = false  (correct for scoring)")
 
     key = os.getenv("LANGSMITH_API_KEY", "")
-    print(f"{OK if key else WARN} LANGSMITH_API_KEY = {mask(key)}")
+    kind = "personal token" if key.startswith("lsv2_pt_") else (
+        "SERVICE key" if key.startswith("lsv2_sk_") else "unrecognized prefix"
+    )
+    print(f"{OK if key else WARN} LANGSMITH_API_KEY = {mask(key)}  ({kind if key else 'unset'})")
+
+    # LANGSMITH_WORKSPACE_ID is INERT with the pinned SDK: langsmith 0.2.11 never
+    # reads it and sends only {Accept, User-Agent, x-api-key}. An earlier version
+    # of this check called a set value FAIL and told you to unset it; that was
+    # wrong in both directions — unsetting it fixes nothing, and the actual
+    # breakage was a workspace-scoped lsv2_sk_ key whose scope the SDK cannot
+    # transmit. So report it as noise and let the live probe below be the verdict.
     ws = os.getenv("LANGSMITH_WORKSPACE_ID", "")
     if ws:
         print(
-            f"{BAD} LANGSMITH_WORKSPACE_ID is SET ({ws[:8]}...)\n"
-            f"        Unset it. The SDK sends it as the tenant header, and a value that\n"
-            f"        does not match your key's workspace makes every READ 403 while\n"
-            f"        writes still succeed — a very confusing failure."
+            f"{WARN} LANGSMITH_WORKSPACE_ID is set ({ws[:8]}...) but is IGNORED by the\n"
+            f"        SDK — the workspace comes from the key alone. Safe to delete."
         )
     else:
-        print(f"{OK} LANGSMITH_WORKSPACE_ID unset  (correct)")
+        print(f"{OK} LANGSMITH_WORKSPACE_ID unset  (correct; it is inert anyway)")
 
+    # Probe the same request the SDK makes -- api key only, no tenant header --
+    # so a green line here means tracing reads will actually work.
     if key:
-        code, _ = get("https://api.smith.langchain.com/api/v1/sessions?limit=1")
-        print(f"{OK if code == 200 else WARN} LangSmith read check (unauthenticated probe) -> {code}")
+        req = urllib.request.Request(
+            "https://api.smith.langchain.com/api/v1/sessions?limit=1",
+            headers={"x-api-key": key},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                code = r.status
+        except urllib.error.HTTPError as e:
+            code = e.code
+        except Exception:  # noqa: BLE001
+            code = 0
+        if code == 200:
+            print(f"{OK} LangSmith key works (read -> 200, no tenant header needed)")
+        elif code in (401, 403):
+            hint = (
+                "That prefix is a workspace-scoped service key, and the SDK cannot\n"
+                "        send a workspace header, so reads 403 while writes still succeed."
+                if key.startswith("lsv2_sk_")
+                else "The key is revoked or belongs to another workspace."
+            )
+            print(
+                f"{BAD} LangSmith key REJECTED (read -> {code}).\n"
+                f"        {hint}\n"
+                f"        Fix: create a Personal Access Token (lsv2_pt_) at\n"
+                f"        smith.langchain.com -> Settings -> API Keys and put it in .env."
+            )
+        else:
+            print(f"{WARN} LangSmith read check -> {code}")
 
     # ---------------- unused ----------------
     strays = [

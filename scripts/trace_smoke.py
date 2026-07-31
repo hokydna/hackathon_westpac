@@ -36,6 +36,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from _env import load_env  # noqa: E402
+
+load_env()
+
 from src import config  # noqa: E402
 from src.agent import loop  # noqa: E402
 from src.tools import rba  # noqa: E402
