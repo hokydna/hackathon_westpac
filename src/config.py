@@ -68,10 +68,31 @@ LITELLM_KEY = os.getenv("LITELLM_KEY", "")
 BRAIN_MODEL = os.getenv("BRAIN_MODEL", "agent-brain")
 DOMAIN_FT_MODEL = os.getenv("DOMAIN_FT_MODEL", "domain-ft")
 
-# `mock` is the organizer bootstrap default. Challenge_Brief.md requires `llm`
-# before official evaluation -- shipping `mock` forfeits the whole 30%
+# Default flipped mock -> llm, 2026-07-31. `mock` was the organizer bootstrap
+# default, correct only while no adapter was served: Challenge_Brief.md requires
+# `llm` before official evaluation, and shipping `mock` forfeits the whole 30%
 # fine-tuned-model-quality category and drags architecture credit with it.
-DOMAIN_PREDICT_MODE = os.getenv("DOMAIN_PREDICT_MODE", "mock")
+#
+# It is safe now because the alias answers. The old "domain-ft returns HTTP 500"
+# was NOT a cold model load: LiteLLM routed domain-ft at 10.0.1.11:8001, and node1
+# is unreachable -- no ssh key, and its vLLM died mid-session (host still pings,
+# 8001 refuses). It was a stale endpoint, and it would never have warmed up.
+#
+# Fixed by serving the adapter on node0 instead and repointing LiteLLM there.
+# node0:8001 is a second vLLM beside vllm-brain on :8000, serving two ids off one
+# 8B base: `nemotron-8b-finance` (base, the base-vs-FT control arm) and
+# `nemotron-8b-finance-lora` (the QLoRA adapter, what domain-ft now routes to).
+# FINETUNE_PLAN §9's 10.0.1.11:8001 fallback is stale -- node1 is not coming back
+# without an organizer granting ssh access.
+#
+# The default matters because the scored harness launches uvicorn with whatever
+# environment it has -- src/config.py never reads .env -- so a `mock` default is
+# what actually ships unless someone remembers to export. Set
+# DOMAIN_PREDICT_MODE=mock explicitly for offline work with no adapter served.
+#
+# tests/conftest.py pins `mock` through the environment, so the suite is
+# unaffected by this default.
+DOMAIN_PREDICT_MODE = os.getenv("DOMAIN_PREDICT_MODE", "llm")
 
 # Defaults to LiteLLM, so nothing changes unless it is set. Exists because
 # FINETUNE_PLAN §9's fallback tree requires pointing DOMAIN_FT_MODEL directly at
