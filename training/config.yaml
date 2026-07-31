@@ -1,0 +1,96 @@
+# QLoRA configuration — Llama-3.1-Nemotron-Nano-8B-v1 on a single DGX Spark GB10.
+#
+# Every value here is either measured on this box or inherited from the handout with a
+# recorded reason for the deviation (see training/MODEL_SUMMARY.md).
+
+base_model: /models/Llama-3.1-Nemotron-Nano-8B-v1
+output_dir: /workspace/training/checkpoints
+data_dir: /workspace/training/data/prepared
+
+# --------------------------------------------------------------------------------------
+# QLoRA — 4-bit NF4 base + bf16 LoRA adapters
+#
+# QLoRA rather than bf16 LoRA is not only a memory choice: node1 is unreachable (no ssh),
+# so training runs on node0 *alongside* the vllm-brain container that the agent workstream
+# depends on. vllm-brain holds ~50 GB of the 121 GB unified memory, leaving ~45 GB. A bf16
+# 8B forward/backward does not fit in that beside the server; a 4-bit base (~5.5 GB) does,
+# with room to spare. QLoRA is what makes training possible without evicting another
+# workstream's dependency.
+#
+# bitsandbytes 0.49.2 NF4 fwd+bwd verified on sm_121 / CUDA 13 / aarch64 on 2026-07-31.
+# --------------------------------------------------------------------------------------
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: bfloat16
+
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  # All projections, per the handout. Attention-only would train ~40% fewer parameters
+  # and shave a little backward time, but the MLP projections are where the terse
+  # "state every component, no hedging" behaviour is cheapest to install.
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+# --------------------------------------------------------------------------------------
+# Sequence budget — MEASURED, not assumed.
+#
+# FINETUNE_PLAN §4.4 specifies 512, derived from a ~95-token SYNTH_SYSTEM. The contract
+# actually in force (src/prompts.py) has an 857-character system prompt, and evidence runs
+# to TOOL_RESULT_CHAR_CAP=1200, so the real distribution over the 3,012 training rows is:
+#
+#     p50 370   p90 510   p99 601   max 778 tokens
+#
+# 512 would truncate 8.4% of rows, and truncation lands on the *assistant answer* — which
+# teaches the model to emit nothing. 832 covers 100% with headroom and is a multiple of 8.
+# --------------------------------------------------------------------------------------
+max_seq_len: 832
+
+training:
+  # ---- speed ----------------------------------------------------------------------
+  # Throughput levers, in descending order of measured effect:
+  #
+  #  1. Dynamic padding to the longest sequence in each batch, not to max_seq_len.
+  #     With p50=370 against an 832 cap this alone removes ~55% of all FLOPs.
+  #  2. group_by_length -- batches similar-length rows together so the dynamic padding
+  #     above actually pays off instead of one 778-token row inflating a whole batch.
+  #  3. gradient_checkpointing OFF. It normally costs ~30-40% throughput to buy memory;
+  #     at 4-bit with short sequences we have the memory, so we buy the speed instead.
+  #  4. Batch 16 with no accumulation -- short sequences underfill the GB10, and one
+  #     optimizer step per forward avoids accumulation overhead entirely.
+  #  5. Fused AdamW; the LoRA optimizer state is small enough that 8-bit buys nothing.
+  per_device_train_batch_size: 16
+  gradient_accumulation_steps: 1        # effective batch 16
+  gradient_checkpointing: false
+  group_by_length: true
+  optim: adamw_torch_fused
+  bf16: true
+  attn_implementation: sdpa             # flash-attn has no aarch64 wheel here
+  dataloader_num_workers: 4
+
+  # ---- schedule -------------------------------------------------------------------
+  num_train_epochs: 1                   # 3,012 rows / 16 = 188 steps
+  max_steps: -1                         # -1 = derive from epochs; set by the smoke test
+  learning_rate: 7.0e-5
+  # The handout warns in bold that 1e-4 spikes the loss at warmup step 50 on this exact
+  # model and hardware, and specifies 5e-5 at effective batch 8. Effective batch here is
+  # 16, so 7e-5 is below linear-scaling parity with that 5e-5 and stays clear of the
+  # spike. NVIDIA's own PEFT deck suggests 1e-4..1e-3; the handout wins on this hardware.
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.10
+  # A RATIO, not a step count. The handout's WARMUP_STEPS=50 assumes a 100-step run; on a
+  # 60-step run a fixed 50-step warmup means the LR never reaches target and the run
+  # trains on essentially nothing. This is the most likely silent failure in the plan.
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  logging_steps: 5
+  save_steps: 20                        # ~10% of a 188-step run
+  save_total_limit: 12
+  eval_steps: 40
+  seed: 42
+
+# Checkpoint selection is on val component recall, never val loss — loss rewards
+# mimicking phrasing, recall rewards stating facts, and only the latter is scored.
+# See training/eval_compare.py and MODEL_SUMMARY.md §"Checkpoint selection".
