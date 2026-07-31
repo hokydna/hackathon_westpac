@@ -3,7 +3,7 @@
   "team_id": "team-17",
   "team_name": "Westpac",
   "github_url": "https://github.com/hokydna/hackathon_westpac",
-  "commit_sha": "e3548a56e43b0514c6b86b8881af739a6e615a4b",
+  "commit_sha": "b31faa2fd98423e4b71c655f6c24fcc23b45c248",
   "agent": {
     "endpoint": "http://10.0.1.10:5000",
     "health_path": "/health",
