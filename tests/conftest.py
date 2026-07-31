@@ -22,7 +22,39 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_DATASET = REPO_ROOT / "tests" / "fixtures" / "dataset"
-REAL_DATASET = REPO_ROOT / "data set"
+
+
+def _real_dataset() -> Path:
+    """Locate the untracked 785 MB corpus, including from a linked worktree.
+
+    Same trap config.py had, and worse here: `REPO_ROOT / "data set"` never
+    exists inside a worktree, so `needs_dataset` tests were skipped
+    UNCONDITIONALLY in exactly the environment every session works in. That
+    silently disabled the MHQ001 reference gate — the blocking check that a
+    10-point all-or-nothing component reproduces — and a skipped gate reads as a
+    passing suite.
+
+    In a linked worktree `.git` is a FILE containing
+    `gitdir: /path/to/main/.git/worktrees/<name>`, so walk to the main checkout.
+    """
+    local = REPO_ROOT / "data set"
+    if local.is_dir():
+        return local
+
+    gitfile = REPO_ROOT / ".git"
+    if gitfile.is_file():
+        for line in gitfile.read_text().splitlines():
+            if line.startswith("gitdir:"):
+                gitdir = Path(line.split(":", 1)[1].strip())
+                for ancestor in gitdir.parents:
+                    if ancestor.name == ".git":
+                        candidate = ancestor.parent / "data set"
+                        if candidate.is_dir():
+                            return candidate
+    return local
+
+
+REAL_DATASET = _real_dataset()
 
 # Must happen before any `from src import config` anywhere in the suite.
 sys.path.insert(0, str(REPO_ROOT))
