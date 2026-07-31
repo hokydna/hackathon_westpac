@@ -1,0 +1,33 @@
+# QLoRA training image for the DGX Spark (GB10, aarch64, sm_121).
+#
+# Base is the *already-pulled* vllm/vllm-openai image rather than
+# nvcr.io/nvidia/nemo-automodel:26.06 because:
+#   * its torch 2.11.0+cu130 is the only build on this box proven to drive sm_121
+#     (vllm-brain is serving Qwen with it right now);
+#   * it needs no new 30 GB pull inside a 3-hour budget;
+#   * bitsandbytes 0.49.2 NF4 forward+backward is verified working on it
+#     (see training/MODEL_SUMMARY.md § "Why this container").
+#
+# The host python cannot be used at all: it has no torch, and a stock wheel
+# would not carry sm_121 kernels ("no kernel image is available for execution").
+FROM vllm/vllm-openai:latest
+
+# Pinned to the versions probed on 2026-07-31. bitsandbytes must stay >=0.49 —
+# earlier wheels have no aarch64 + CUDA 13 build and fall back to a CPU stub.
+RUN pip install --no-cache-dir \
+        "bitsandbytes==0.49.2" \
+        "peft==0.20.0" \
+        "trl==1.9.2" \
+        "datasets>=4.0" \
+        "accelerate>=1.6"
+
+# vllm's image has no `python` alias, only `python3`; several NVIDIA recipes
+# assume `python`, so provide it.
+RUN ln -sf /usr/bin/python3 /usr/local/bin/python
+
+ENV HF_HOME=/hf \
+    TOKENIZERS_PARALLELISM=false \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /workspace
+ENTRYPOINT ["/bin/bash", "-lc"]

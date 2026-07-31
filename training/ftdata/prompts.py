@@ -146,6 +146,74 @@ def render_synthesis_messages(
 
 
 # --------------------------------------------------------------------------------------
+# sentiment prompt — the adapter's *second* role
+# --------------------------------------------------------------------------------------
+#
+# The adapter serves two prompt shapes, not one (FINETUNE_PLAN §1):
+#
+#   Role 1  final synthesis      — SYNTH_SYSTEM / render_synthesis_messages.
+#                                  Invoked unconditionally after the Qwen loop exits.
+#                                  Never a tool.
+#   Role 2  sentiment classification — the pair below. Invoked as the ``domain_sentiment``
+#                                  tool that Qwen *chooses* to call mid-loop
+#                                  (Setup_Instructions.md L95).
+#
+# Role 2 is not an architecture violation: Qwen still does all planning and still decides
+# to call the tool. What is prohibited is Nemotron selecting tools itself.
+#
+# The ≤200-character ceiling is enforced by the calling tool, so an answer that rambles
+# gets clamped and loses its direction clause — which is where the points are. The
+# training data must therefore teach brevity, not rely on the clamp.
+
+SENTIMENT_CHAR_CAP = 200
+
+SENTIMENT_SYSTEM = (
+    "You are a financial-sentiment classifier for Australian market reporting.\n"
+    "Given one Australian Financial Review article and the RBA cash rate in force on its "
+    "publication date, classify the article's sentiment toward Australian equities.\n\n"
+    "Requirements:\n"
+    "1. Start with exactly one sentiment label: Positive, Negative, or Mixed.\n"
+    "2. Then give the likely near-term direction for the named stocks or sector: higher, "
+    "lower, or flat.\n"
+    "3. Ground the reason in the article's own reporting and the supplied cash rate.\n"
+    f"4. Answer in at most {SENTIMENT_CHAR_CAP} characters, in one or two short sentences.\n"
+    "5. Never give a numeric forecast, price target, percentage move, or date. Direction "
+    "only.\n"
+    "6. Do not hedge. Never write approximately, roughly, about, or around before a "
+    "number.\n"
+    "7. Return the classification text only."
+)
+
+_SENTIMENT_USER_TEMPLATE = (
+    "Article headline:\n{headline}\n\n"
+    "Publication date:\n{publication_date}\n\n"
+    "Article excerpt:\n{excerpt}\n\n"
+    "RBA cash rate in force on that date:\n{cash_rate}"
+)
+
+
+def render_sentiment_messages(
+    headline: str,
+    publication_date: str,
+    excerpt: str,
+    cash_rate: str,
+) -> list[dict]:
+    """The exact message list the ``domain_sentiment`` tool sends to ``DOMAIN_FT_MODEL``."""
+    return [
+        {"role": "system", "content": SENTIMENT_SYSTEM},
+        {
+            "role": "user",
+            "content": _SENTIMENT_USER_TEMPLATE.format(
+                headline=headline.strip(),
+                publication_date=publication_date,
+                excerpt=excerpt.strip(),
+                cash_rate=cash_rate,
+            ),
+        },
+    ]
+
+
+# --------------------------------------------------------------------------------------
 # correction prompt — the one controlled retry the handoff pack §8.2 allows
 # --------------------------------------------------------------------------------------
 
