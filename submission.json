@@ -5,13 +5,13 @@
   "github_url": "https://github.com/hokydna/hackathon_westpac",
   "commit_sha": "b31faa2fd98423e4b71c655f6c24fcc23b45c248",
   "agent": {
-    "endpoint": "https://10.0.1.10:5000",
+    "endpoint": "http://10.0.1.10:5000",
     "health_path": "/health",
     "query_path": "/query",
     "timeout_seconds": 300
   },
   "model": {
-    "endpoint": "https://10.0.1.10:8001/v1",
+    "endpoint": "http://10.0.1.10:8001/v1",
     "model_name": "nemotron-8b-finance-lora"
   }
 }
