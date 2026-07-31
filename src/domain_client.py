@@ -38,7 +38,7 @@ class DomainUnavailable(RuntimeError):
 
 def _post(payload: dict, timeout: float) -> dict:
     req = urllib.request.Request(
-        f"{config.LITELLM_BASE_URL}/chat/completions",
+        f"{config.DOMAIN_BASE_URL}/chat/completions",
         data=json.dumps(payload).encode(),
         headers={
             "Content-Type": "application/json",
