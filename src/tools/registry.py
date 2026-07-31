@@ -98,6 +98,44 @@ def _excl(args: dict) -> Iterable[str] | None:
     return raw if isinstance(raw, (list, tuple)) else [raw]
 
 
+def _year_scope(args: dict) -> tuple[int | str | None, str | None]:
+    """Resolve the calendar year for metrics that accept ONLY `year`.
+
+    `correlation` and `volatility` are year-scoped in asx.py, but the query_data
+    schema also advertises `date_from`/`date_to`. Passing only `args.get("year")`
+    therefore dropped any supplied range on the floor and asx.py fell through to
+    the whole series -- so "correlation in 2020" answered 0.4932 over 1,773 days
+    (the full sample) instead of 0.6118 over 254. A silently full-sample number
+    wearing a scoped question's label is the worst kind of wrong: it is confident
+    and it is unverifiable from the answer text.
+
+    Returns (year, refusal). When a range spans several calendar years there is no
+    honest single-year answer, so the refusal is returned for the caller to surface
+    rather than quietly widening the window.
+    """
+    year = args.get("year")
+    if year:
+        return year, None
+
+    lo = str(args.get("date_from") or "").strip()
+    hi = str(args.get("date_to") or "").strip()
+    if not (lo and hi):
+        return None, None  # no scope asked for; full sample is the honest answer
+
+    try:
+        lo_year, hi_year = int(lo[:4]), int(hi[:4])
+    except ValueError:
+        return None, None
+
+    if lo_year == hi_year:
+        return lo_year, None
+    return None, (
+        f"This metric is scoped by calendar year, and {lo}..{hi} spans "
+        f"{lo_year}-{hi_year}. Ask one year at a time, or omit the range to get "
+        f"the full-sample figure."
+    )
+
+
 def _query_data(args: dict) -> tuple[str, dict]:
     dataset = str(args.get("dataset", "")).strip().lower()
     metric = str(args.get("metric", "")).strip().lower()
@@ -189,22 +227,31 @@ def _query_data(args: dict) -> tuple[str, dict]:
                 f"{d['highest_ticker']} has the highest average daily volume at "
                 f"{_fmt(d['highest_avg_daily_volume'])} shares per trading day.", d)
         if metric == "volatility":
-            d = asx.volatility(args.get("ticker", ""), args.get("year"), exclude_tickers=ex)
+            year, refusal = _year_scope(args)
+            if refusal:
+                return refusal, {"note": refusal}
+            d = asx.volatility(args.get("ticker", ""), year, exclude_tickers=ex)
             if "note" in d:
                 return d["note"], d
-            scope = f" in {d['year']}" if d.get("year") else ""
+            scope = f" in {d['year']}" if d.get("year") else " over the full sample"
             return (
                 f"{d['ticker']}'s annualised volatility{scope} was "
                 f"{d['volatility_pct_annualised']:.2f}%, from "
                 f"{_fmt(d['daily_return_count'])} {d['basis']} scaled by the square root "
                 f"of {d['annualisation_factor']}.", d)
         if metric == "correlation":
-            d = asx.correlation(args.get("ticker", ""), args.get("ticker_b", ""), args.get("year"))
+            year, refusal = _year_scope(args)
+            if refusal:
+                return refusal, {"note": refusal}
+            d = asx.correlation(args.get("ticker", ""), args.get("ticker_b", ""), year)
             if "note" in d:
                 return d["note"], d
+            # State the scope. Without it, a full-sample figure and a single-year
+            # figure are indistinguishable in the tool result the brain reads.
+            scope = f" in {d['year']}" if d.get("year") else " over the full sample"
             return (
                 f"The correlation of daily returns between {d['ticker_a']} and "
-                f"{d['ticker_b']} was {d['correlation']:.4f} over "
+                f"{d['ticker_b']}{scope} was {d['correlation']:.4f} over "
                 f"{_fmt(d['overlapping_days'])} overlapping trading days.", d)
         if metric == "max_drawdown":
             d = asx.max_drawdown(args.get("ticker", ""))
