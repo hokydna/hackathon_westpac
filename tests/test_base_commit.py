@@ -329,3 +329,45 @@ def test_afr_fixture_contains_the_apostrophe_tokenizer_trap(fixture_dataset):
     good = sum(1 for b in blobs if "nab" in re.findall(r"[a-z0-9]+", b))
     regex = sum(1 for b in blobs if re.search(r"\bnab\b", b))
     assert good == regex, "[a-z0-9]+ tokens must equal \\bnab\\b counts"
+
+
+# --------------------------------------------------------------------------
+# DATASET_DIR must resolve from inside a linked git worktree.
+#
+# `data set/` is untracked, so a worktree does not contain it, and REPO_ROOT is
+# derived from __file__ -- which inside `.worktrees/agent/` points at the
+# worktree. Every session works in a worktree, so the naive default silently
+# broke the corpus for all four of them. This was invisible until an end-to-end
+# run failed with FileNotFoundError.
+# --------------------------------------------------------------------------
+
+
+def test_default_dataset_dir_follows_a_worktree_gitfile(tmp_path, monkeypatch):
+    """Simulate the linked-worktree layout git actually creates."""
+    main_checkout = tmp_path / "repo"
+    (main_checkout / ".git" / "worktrees" / "agent").mkdir(parents=True)
+    (main_checkout / "data set").mkdir()
+
+    worktree = tmp_path / "repo" / ".worktrees" / "agent"
+    worktree.mkdir(parents=True)
+    # In a linked worktree, .git is a FILE, not a directory.
+    (worktree / ".git").write_text(
+        f"gitdir: {main_checkout / '.git' / 'worktrees' / 'agent'}\n"
+    )
+
+    monkeypatch.setattr(config, "REPO_ROOT", worktree)
+    assert config._default_dataset_dir() == main_checkout / "data set"
+
+
+def test_default_dataset_dir_prefers_a_local_corpus(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    (root / "data set").mkdir(parents=True)
+    monkeypatch.setattr(config, "REPO_ROOT", root)
+    assert config._default_dataset_dir() == root / "data set"
+
+
+def test_domain_base_url_defaults_to_litellm():
+    """FINETUNE_PLAN §9's fallback needs to point DOMAIN_FT_MODEL straight at a
+    vLLM endpoint if the LiteLLM alias cannot be repaired -- while the brain
+    keeps using LiteLLM. Defaults to LiteLLM so nothing changes unless set."""
+    assert config.DOMAIN_BASE_URL == config.LITELLM_BASE_URL

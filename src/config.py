@@ -23,7 +23,36 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # DATASET_DIR is therefore absolute and defaults to the main checkout, letting
 # every worktree read one shared copy. Unit tests override it to point at
 # tests/fixtures/dataset/ instead -- see tests/conftest.py.
-DATASET_DIR = Path(os.getenv("DATASET_DIR", REPO_ROOT / "data set"))
+def _default_dataset_dir() -> Path:
+    """Resolve `data set/` even from inside a linked git worktree.
+
+    `data set/` is untracked, so a worktree does not contain it. REPO_ROOT is
+    derived from __file__, which inside `.worktrees/agent/` points at the
+    worktree — where the corpus does not exist. Every session works in a
+    worktree, so the naive default broke the corpus for all of them.
+
+    In a linked worktree `.git` is a FILE containing
+    `gitdir: /path/to/main/.git/worktrees/<name>`, so the main checkout is the
+    parent of the `.git` directory in that path. Walk to it and look there.
+    """
+    local = REPO_ROOT / "data set"
+    if local.is_dir():
+        return local
+
+    gitfile = REPO_ROOT / ".git"
+    if gitfile.is_file():
+        for line in gitfile.read_text().splitlines():
+            if line.startswith("gitdir:"):
+                gitdir = Path(line.split(":", 1)[1].strip())
+                for ancestor in gitdir.parents:
+                    if ancestor.name == ".git":
+                        candidate = ancestor.parent / "data set"
+                        if candidate.is_dir():
+                            return candidate
+    return local
+
+
+DATASET_DIR = Path(os.getenv("DATASET_DIR") or _default_dataset_dir())
 
 RBA_PATH = DATASET_DIR / "RBA Rates" / "RBA-rates.jsonl"
 ASX_DIR = DATASET_DIR / "ASX"
@@ -43,6 +72,12 @@ DOMAIN_FT_MODEL = os.getenv("DOMAIN_FT_MODEL", "domain-ft")
 # before official evaluation -- shipping `mock` forfeits the whole 30%
 # fine-tuned-model-quality category and drags architecture credit with it.
 DOMAIN_PREDICT_MODE = os.getenv("DOMAIN_PREDICT_MODE", "mock")
+
+# Defaults to LiteLLM, so nothing changes unless it is set. Exists because
+# FINETUNE_PLAN §9's fallback tree requires pointing DOMAIN_FT_MODEL directly at
+# a vLLM endpoint (e.g. http://10.0.1.11:8001/v1) if the LiteLLM alias cannot be
+# repaired -- and the brain must keep using LiteLLM regardless.
+DOMAIN_BASE_URL = os.getenv("DOMAIN_BASE_URL") or LITELLM_BASE_URL
 
 # --------------------------------------------------------------------------
 # Latency budget  (kickoff F10)
