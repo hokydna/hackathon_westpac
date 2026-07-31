@@ -38,41 +38,56 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src import config  # noqa: E402
 from src.agent import loop  # noqa: E402
+from src.tools import rba  # noqa: E402
 
 QUESTIONS = REPO_ROOT / "Participant_Package" / "public_questions.jsonl"
 
 
 class RbaTool:
-    """A real deterministic RBA tool, so the traces carry genuine tool output.
+    """The real deterministic RBA tool layer from src/tools/rba.py.
 
-    Session A owns the real tool layer; this is the minimum needed to exercise
-    dispatch end to end without depending on their branch.
+    Session A owns that module; this is a thin dispatcher so the traced run
+    exercises genuine metrics rather than a stub. `last_data` carries the typed
+    payload through to synthesis, which is the shape the adapter was trained on.
     """
 
     name = "query_data"
     args_schema = None
 
+    METRICS = {
+        "count_changes": lambda a: rba.count_changes(),
+        "count": lambda a: rba.count(),
+        "extremes": lambda a: rba.extremes(),
+        "max_hold_streak": lambda a: rba.max_hold_streak(),
+        "lookup_rate": lambda a: rba.lookup_rate(a.get("date") or a.get("date_from") or ""),
+        "cycle_summary": lambda a: rba.cycle_summary(
+            a.get("date_from", ""), a.get("date_to", "")
+        ),
+    }
+
     def __init__(self) -> None:
         self.last_data: dict | None = None
 
     async def ainvoke(self, args: dict) -> str:
-        rows = [
-            json.loads(line)
-            for line in open(config.RBA_PATH, encoding="utf-8-sig")
-            if line.strip()
-        ]
-        changed = [r for r in rows if r["Change % points"] not in ("0.00", "0.0")]
-        ups = sum(1 for r in changed if r["Change % points"].startswith("+"))
-        self.last_data = {
-            "total_records": len(rows),
-            "changed": len(changed),
-            "increases": ups,
-            "decreases": len(changed) - ups,
-        }
-        return (
-            f"{len(changed)} of {len(rows)} records changed the rate: "
-            f"{ups} increases and {len(changed) - ups} decreases."
-        )
+        dataset = str(args.get("dataset", "")).lower()
+        metric = str(args.get("metric", "")).lower()
+
+        if dataset != "rba":
+            return (
+                f"No tool coverage for dataset '{dataset}' yet. Only 'rba' is "
+                f"implemented; ASX and AFR are still being built."
+            )
+        fn = self.METRICS.get(metric)
+        if fn is None:
+            return (
+                f"Unknown RBA metric '{metric}'. Available: "
+                f"{', '.join(sorted(self.METRICS))}."
+            )
+
+        result = fn(args)
+        self.last_data = result
+        # Human-readable for the brain; last_data carries the typed evidence.
+        return "; ".join(f"{k}={v}" for k, v in result.items())
 
 
 BRAIN_SCHEMAS = [
@@ -82,13 +97,24 @@ BRAIN_SCHEMAS = [
             "name": "query_data",
             "description": (
                 "Query the approved local datasets deterministically. "
-                "RBA metrics: count_changes."
+                "RBA metrics: count_changes, count, extremes, max_hold_streak, "
+                "lookup_rate (as-of a date), cycle_summary (over date_from..date_to). "
+                "ASX and AFR are not implemented yet."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "dataset": {"type": "string", "enum": ["rba", "asx", "afr"]},
-                    "metric": {"type": "string", "enum": ["count_changes"]},
+                    "metric": {
+                        "type": "string",
+                        "enum": [
+                            "count_changes", "count", "extremes",
+                            "max_hold_streak", "lookup_rate", "cycle_summary",
+                        ],
+                    },
+                    "date": {"type": "string", "description": "ISO date for lookup_rate"},
+                    "date_from": {"type": "string"},
+                    "date_to": {"type": "string"},
                 },
                 "required": ["dataset", "metric"],
             },
