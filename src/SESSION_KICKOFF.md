@@ -789,8 +789,8 @@ network. Phase 0 and the whole agentic loop are done and merged.
 | **Phase 0** | Complete. Six frozen files, test scaffolding, 328K fixture corpus, both probes run |
 | **B — agent** | **Complete and merged.** `parser` `brain` `guard` `budget` `synth` `loop`, 97 tests. Verified end-to-end against the live Qwen |
 | **D — training** | Active on `feat/training`. 3,773 records generated against the shared `src/prompts.py` |
-| **A — tools** | **Not started.** `src/tools/` holds only `__init__.py` |
-| **C — serving/eval** | **Not started.** No `app.py`, no `run_offline_eval.py` |
+| **A — tools** | **Complete and merged.** `corpora` `rba` `afr` `asx` `registry`, 119 tests |
+| **C — serving/eval** | **Not started.** No `app.py`, no `run_offline_eval.py` — this is now the only gap |
 
 ### The measurement that should drive the next decisions
 
@@ -835,13 +835,17 @@ the highest-leverage remaining work after tools exist at all.
 
 ### Next, in order of leverage
 
-1. **A — tools.** Nothing else can raise the score. `src/tools/` is empty, so
-   every question currently retrieves nothing. Start with `corpora.py` + `rba.py`
-   against the MHQ001 fixture, then the AFR index, then ASX.
-2. **A — `domain_sentiment`** (§10 Role 2). 30 of 150 public points, still unbuilt.
-3. **C — `app.py`.** `/health` is a hard gate: fail it and the entire 40% zeroes.
-4. **C — offline eval.** Two passes, penalised score, failure attribution.
-5. **Integration** — first real `POST /query`, then `submission.json`.
+1. **C — `app.py`.** The only thing between us and a scoreable submission.
+   `/health` is a hard gate: fail it and the entire 40% zeroes. Load corpora at
+   import, before uvicorn binds, so the port opens only once the AFR index is
+   built (~25s).
+2. **C — offline eval.** Two passes never interleaved, penalised score, failure
+   attribution. The frozen `component_judge` and the `real_corpus` seam in
+   `tests/test_registry.py` are both ready to reuse.
+3. **Integration** — first real `POST /query`, then `submission.json`.
+
+Sessions A and B are done. Every tool reproduces its reference answer, and the
+loop drives them end to end against the live Qwen.
 
 ### Open decision that spans A, B and D
 
@@ -864,3 +868,128 @@ Pick one before A finishes its tools:
 - **D re-serialises** its 3,773 records against the harness's real string format.
   Truer to Q3's advice, but costs a regeneration and loses the typed evidence that
   makes the assistant targets precise.
+
+
+---
+
+## 12. Verified tool constants — do not re-derive
+
+Measured on the real corpus 2026-07-31, each one before its assertion was written.
+Every value below reproduces its published reference answer exactly.
+
+**RBA** — 175 records, 3 Feb 2010 → 17 Jun 2026, UTF-8 BOM.
+
+| Question | Value |
+|---|---|
+| MHQ001 | 41 of 175 changed; 20 increases, 21 decreases |
+| lowest rate | 0.1, first effective 2020-11-04, 16 records |
+| highest rate | 4.75, first effective **2010-11-03**, 11 records |
+| longest hold | 1,036 days, 2016-08-03 → 2019-06-05, held 1.5 then 1.25 |
+| 2022–23 tightening | 13 hikes, +4.25 pp, 0.1 → 4.35 |
+| 2011–13 easing (MHQ035) | 8 cuts, −2.25 pp, 4.75 → 2.50 |
+
+**ASX** — 18 tickers × 1,774 rows, 2015-01-02 → 2021-12-30.
+
+| Question | Value |
+|---|---|
+| MHQ040 | 18 files, 1,774 rows each, 2 Jan 2015 → 30 Dec 2021 |
+| MHQ045 | BHP.AX best 2018 +22.17%; AMP.AX worst −50.04% |
+| MHQ049 | AMP.AX highest avg daily volume, 11,635,671.71 shares/day |
+| MHQ076 | QBE.AX best non-Tabcorp 2021 return, +35.57% |
+| MHQ072 | 5→12 Jun 2019: CBA +0.60, NAB +1.39, ANZ +0.89, BHP +5.89, RIO +2.91 |
+| MHQ074 | equal-weighted non-Tabcorp basket +2.88% / +0.24% / −2.17% |
+
+**AFR** — 219,538 records, 85 files, 373,012 tokens, 2015–2021, 92 undated.
+
+| Term / question | Value |
+|---|---|
+| `unemployment` / `qbe` / `nab` | 5,997 / 1,546 / 7,372 — identical to a `\bword\b` scan |
+| MHQ061 | peak year 2020 = 1,452; peak month 202005 = 218 |
+| MHQ076 | QBE in 2021 = 369 |
+
+### Semantics that were wrong in the plans, or easy to get wrong
+
+- **ASX filenames are COMPANY names, not tickers.** `Tabcorp-ASX-2015-2021.jsonl`
+  holds `TAH.AX`, and 7 of 18 stems mismatch their ticker prefix.
+  `FINETUNE_PLAN.md` §2.4's `<TICKER>-` pattern is **wrong** — read the `ticker`
+  field. Deriving it from the filename mis-keys `exclude_tickers` on the one
+  ticker excluded in 5 of the 15 questions.
+- **MHQ061 searches `unemployment`, not `nab`.** The plans quote its numbers
+  (1,452 / 218) without naming the term; assuming `nab` gives 1,267 / 184 and
+  matches nothing.
+- **The MHQ072/074 basket is the equal-weighted MEAN of per-ticker returns**, not
+  a price-weighted index.
+- **`window_return` must snap to available trading days.** RBA effective dates are
+  frequently not trading days, so an exact-match window returns nothing on exactly
+  the cross-dataset questions it exists for.
+- **The AFR index is mandatory.** A full regex scan measures **36s per pattern**
+  and `re` does not release the GIL, so neither caching nor threads help. One
+  uncached AFR question would blow the 60s budget alone.
+- **AFR index peak RSS is 905 MB** (review C4's measurement). Postings are
+  `array("i")` because ~44M (token, record) pairs as boxed ints cost multiple GB,
+  and each node's unified memory is SHARED with vLLM — an oversized index can OOM
+  the brain, not just the agent.
+- **Tools must return prose, not `k=v`.** Measured: a `k=v` tool result made base
+  Nemotron echo that shape and score **0/10 on MHQ001 with every number correct**.
+
+### ⚠️ Open organizer question — date basis
+
+`Challenge_Brief.md`'s partial-credit example marks `2010-11-03` wrong for the
+4.75 first-effective date and says the judge expected `2010-11-02`. **2 Nov 2010
+does not exist anywhere in the approved dataset**, though the brief's record count
+(11) matches us. The RBA board meets Tuesday and the rate takes effect Wednesday,
+so that example looks graded against the **announcement** date.
+
+We assert the corpus, because the brief's *other* example (`0.1` → `2020-11-04`)
+is accepted and we reproduce it exactly — shifting dates a day earlier would break
+the case that works. If hidden date components grade against announcement dates
+this costs points. `Setup_Instructions.md` closes by telling us to ask in exactly
+this situation.
+
+---
+
+## 13. Testing on LangSmith
+
+Two different things, and the second is the one that produces submittable evidence.
+
+### Tracing — works today
+
+```bash
+export LANGSMITH_API_KEY='lsv2_pt_...'   # a PAT; read access is needed
+unset LANGSMITH_WORKSPACE_ID              # a stale value 403s every READ
+export LANGSMITH_TRACING=true
+export LANGSMITH_PROJECT=westpac-agentic-harness
+export DOMAIN_PREDICT_MODE=llm
+.venv/bin/python scripts/trace_smoke.py --only MHQ001,MHQ040
+```
+
+Each request yields one `agent.answer` root with `brain.plan` / `parser.parse` /
+`guard.validate` / `tool.invoke` / `synth.write` children, so a lost component
+attributes to a **layer** rather than to "the agent". Root metadata carries
+`commit_sha`, `question_id`, `difficulty` and `domain_predict_mode`, which is what
+makes a trace comparable across commits instead of an anecdote.
+
+### Experiments — what `langchain-basics` actually does, and what we still need
+
+`langchain-basics/evals/run-eval-offline.py` is the working local reference the
+review told us to prefer over the docs. Its pattern:
+
+1. `evals/dataset.py` → `to_langsmith_examples()`, upserted into a named dataset.
+2. Evaluators live in their own module and are **uploaded and bound to the
+   dataset**, so LangSmith applies them to every experiment on it automatically.
+3. LLM judges use a `StructuredPrompt` pushed to the prompt hub with a Pydantic
+   feedback schema (`reasoning` first, then the score field).
+4. `aevaluate(target, data=dataset, experiment_prefix=...)` runs the whole set.
+
+**Ours does not exist yet and belongs to session C.** Built on
+`public_questions.jsonl` it gives the base-vs-fine-tuned artefact the 30%
+model-quality category asks for: same dataset, same brain, same tools, same
+commit, one variable — `experiment_prefix="nemotron-base"` versus
+`"nemotron-ft"`. That is the controlled ablation `handout/03` explicitly requires.
+
+Note `langchain-basics` calls `load_dotenv()`; our `config.py` deliberately does
+not, so that the scored run's environment is always explicit. The `scripts/`
+entry points are the right place to load `.env` if we want the convenience.
+
+**Tracing stays OFF for the scored run** (F12). This whole section is dev-time
+evidence gathering on the *public* questions, whose text is already ours.

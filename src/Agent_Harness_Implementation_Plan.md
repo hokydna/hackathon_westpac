@@ -357,6 +357,8 @@ equal-weighted baskets, for the cross-dataset questions)
 **`afr`** — `count`, `count_by_month`, `share`, `retrieve_by_headline` ★ (exact headline +
 publication date, for MHQ058/067/080)
 
+**Status: implemented and verified.** Every metric below now exists in `src/tools/` and reproduces its published reference answer — see `SESSION_KICKOFF.md` §12 for the measured constants and for four semantics the plans got wrong (ASX filenames, MHQ061's search term, the equal-weighted basket, and trading-day snapping).
+
 **`coverage`** ★ — compares date ranges across datasets. MHQ090 is a hard question whose
 correct answer is a **justified refusal**: RBA covers the 2022–23 hikes but AFR and ASX
 both end in 2021, so the analysis is unsupported. The fine-tuned model must be trained to
