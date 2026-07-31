@@ -189,7 +189,16 @@ def main() -> int:
         verdict = "NATURAL_SYNTHESIS"
         guidance = (
             "The judge accepts paraphrase. Session D's `assistant` target is **natural "
-            "synthesis** — fluent, complete answers. Fact order and date format are free."
+            "synthesis** — fluent, complete answers. Sentence order and date format are "
+            "free.\n\n"
+            "**One caveat this arm did NOT test.** The paraphrase arm reorders whole "
+            "*sentences* and never splits a sentence, so it says nothing about compound "
+            "facts. The FINETUNE_PLAN §4.5 rule still stands independently: each compound "
+            "`required_fact` must stay in ONE sentence carrying every sub-clause. Four "
+            "questions (MHQ001, MHQ040, MHQ049, MHQ076) are a single 10-point "
+            "all-or-nothing component bundling 3–4 numbers — 26.7% of public points — and "
+            "splitting one across two sentences still scores zero. Natural synthesis is "
+            "safe; natural *decomposition* of a compound fact is not."
         )
     elif para_m >= 0.70:
         verdict = "REFERENCE_SHAPE_PREFERRED"
