@@ -1,0 +1,9 @@
+# <type>(<scope>): <subject>            <- imperative, <= 72 chars, no trailing period
+#
+# <body: why this change, not what the diff already shows>
+#
+# type:  feat | fix | docs | train | chore | refactor | test | perf
+# scope: agent | retrieval | harness | training | package | submission | repo
+#
+# Never commit: data set/, model weights, .env, keys, real credentials.
+# main must stay submission-ready.

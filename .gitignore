@@ -1,6 +1,65 @@
+# ---------------------------------------------------------------------------
+# Hackathon data set
+#
+# `data set/` (~785M of AFR/ASX/RBA corpora) is deliberately NOT committed.
+# It ships with the participant package and is reproducible from
+# cognitivo-aifactory/AI_Industry_Training_Hackathon. Keeping it out of git
+# keeps clones fast for the judging harness and for teammates.
+# Copy it into place locally; do not `git add -f` it.
+# ---------------------------------------------------------------------------
+data set/
+
+# Model artefacts and checkpoints (commit configs/scripts/metrics, not weights)
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+training/**/checkpoints/
+training/**/adapter/
+training/**/wandb/
+
+# Run logs — commit curated evidence only, not raw firehose output
+logs/**/*.log
+!logs/.gitkeep
+
+# Secrets and local config — never commit keys or tokens
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+
+# Python
+__pycache__/
+*.pyc
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Worktrees
+.worktrees/
+
 # gitignore template for LangChain products, e.g., LangGraph, LangSmith
 # website: https://www.langchain.com/
 # website: https://www.langchain.com/langgraph
 
 # LangGraph
 .langgraph_api/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,12 @@
+# Normalise line endings so diffs stay clean across machines.
+* text=auto eol=lf
+
+# Data-ish files: keep them out of textual diffs and merges. If one is ever
+# committed on purpose, a conflict should be resolved by picking a side, not
+# by line-merging JSON.
+*.jsonl -diff merge=ours
+*.parquet binary
+*.zip binary
+
+# Generated/vendored material excluded from language stats.
+Participant_Package/** linguist-documentation
